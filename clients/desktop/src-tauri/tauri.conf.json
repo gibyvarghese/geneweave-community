@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "geneWeave",
+  "version": "1.0.0",
+  "identifier": "dev.weaveintel.geneweave",
+  "build": {
+    "devUrl": "http://localhost:3500",
+    "frontendDist": "http://localhost:3500"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "geneWeave",
+        "label": "main",
+        "url": "http://localhost:3500",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 880,
+        "minHeight": 600,
+        "resizable": true,
+        "center": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "pubkey": "REPLACE_WITH_YOUR_TAURI_UPDATER_PUBLIC_KEY",
+      "endpoints": [
+        "https://releases.weaveintel.dev/geneweave/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "createUpdaterArtifacts": true,
+    "shortDescription": "geneWeave desktop — your AI workspace + offline notes",
+    "longDescription": "The geneWeave desktop app: the full web workspace in a native shell, with a global quick-capture hotkey, an offline notes cache that reopens your last note, native menus, and signed auto-updates."
+  }
+}

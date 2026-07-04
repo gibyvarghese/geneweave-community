@@ -26,9 +26,8 @@ jobs:
       - name: Type check
         run: npx turbo typecheck
 
-      - name: Unit + integration tests
-        working-directory: apps/geneweave
-        run: npx vitest run
+      - name: Unit + integration tests (apps + clients)
+        run: npx turbo test
         env:
           JWT_SECRET: ci-test-secret
       # Playwright e2e need a running server — add a dedicated job as the app grows.

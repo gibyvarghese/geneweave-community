@@ -1,0 +1,20 @@
+{
+  "name": "@geneweave/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "geneWeave desktop app — a Tauri v2 shell around the geneWeave web build (global quick-capture, offline notes cache, native menus, signed auto-update).",
+  "scripts": {
+    "//": "The native desktop app needs the Rust toolchain (and a valid Tauri config), which are NOT part of the headless TS workspace or CI. So build no-ops by default and only runs the native Tauri build when you opt in with DESKTOP_NATIVE_BUILD=1 — this keeps the repo-wide turbo build (and start-geneweave.sh) green everywhere, while still producing a real native build on a properly set-up machine.",
+    "dev": "tauri dev",
+    "build": "if [ \"$DESKTOP_NATIVE_BUILD\" = \"1\" ] && { command -v tauri >/dev/null 2>&1 || [ -x node_modules/.bin/tauri ]; }; then tauri build; else echo '[@geneweave/desktop] Skipping the native desktop build (set DESKTOP_NATIVE_BUILD=1 with Rust + the Tauri CLI installed to produce a native build).'; fi",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-global-shortcut": "^2",
+    "@tauri-apps/plugin-updater": "^2"
+  }
+}

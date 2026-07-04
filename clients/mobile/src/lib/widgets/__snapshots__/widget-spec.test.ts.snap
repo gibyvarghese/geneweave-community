@@ -1,0 +1,257 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "approval" 1`] = `
+{
+  "a11yLabel": "Approval required to run an external BLAST query.",
+  "actions": [
+    {
+      "actionId": "approve",
+      "label": "Approve",
+      "style": "primary",
+    },
+    {
+      "actionId": "deny",
+      "label": "Deny",
+      "style": "danger",
+    },
+  ],
+  "description": "This calls a third-party service and may incur cost.",
+  "id": "w-approval",
+  "kind": "approval",
+  "riskLevel": "external-side-effect",
+  "title": "Run external BLAST query?",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "artifact" 1`] = `
+{
+  "a11yLabel": "variants.vcf",
+  "artifactType": "file",
+  "downloadable": true,
+  "id": "w-artifact",
+  "kind": "artifact",
+  "mimeType": "text/vcf",
+  "preview": "3 filtered variants, 4.2 KB",
+  "title": "variants.vcf",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "chart" 1`] = `
+{
+  "a11yLabel": "Bar chart of expression levels across four tissues.",
+  "chartType": "bar",
+  "id": "w-chart",
+  "kind": "chart",
+  "series": [
+    {
+      "label": "Liver",
+      "value": 42,
+    },
+    {
+      "label": "Kidney",
+      "value": 31,
+    },
+    {
+      "label": "Brain",
+      "value": 58,
+    },
+    {
+      "label": "Lung",
+      "value": 24,
+    },
+  ],
+  "summary": "Bar chart of expression levels across four tissues.",
+  "title": "Expression by tissue",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "citation" 1`] = `
+{
+  "a11yLabel": "Sources",
+  "citations": [
+    {
+      "id": "c1",
+      "page": 14,
+      "source": "Nature Genetics, 2021",
+      "text": "BRCA1 loss-of-function increases breast-cancer risk.",
+      "url": "https://example.com/ng2021",
+    },
+    {
+      "id": "c2",
+      "source": "NEJM, 2019",
+      "text": "TP53 R175H is a recurrent hotspot mutation.",
+    },
+  ],
+  "id": "w-citation",
+  "kind": "citation",
+  "title": "Sources",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "code" 1`] = `
+{
+  "a11yLabel": "Filter snippet",
+  "code": "variants = [v for v in calls if v.score > 0.8]
+print(len(variants))",
+  "id": "w-code",
+  "kind": "code",
+  "language": "python",
+  "title": "Filter snippet",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "fallback — unknown type" 1`] = `
+{
+  "a11yLabel": "3D molecule",
+  "href": "https://example.com/viewer",
+  "id": "w-unknown",
+  "kind": "fallback",
+  "text": "Open the 3D viewer — open on desktop",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "fallback — unsupported schemaVersion" 1`] = `
+{
+  "a11yLabel": "A table from a newer app version.",
+  "id": "w-future",
+  "kind": "fallback",
+  "text": "A v99 table",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "form" 1`] = `
+{
+  "a11yLabel": "Refine search",
+  "actions": [
+    {
+      "actionId": "apply",
+      "label": "Apply",
+      "style": "primary",
+    },
+  ],
+  "description": "Narrow the variant set before re-running.",
+  "fields": [
+    {
+      "label": "Gene symbol",
+      "name": "gene",
+      "placeholder": "e.g. BRCA1",
+      "type": "text",
+    },
+    {
+      "defaultValue": "0.8",
+      "label": "Minimum score",
+      "name": "minScore",
+      "type": "number",
+    },
+    {
+      "label": "Consequence",
+      "name": "consequence",
+      "options": [
+        {
+          "label": "Missense",
+          "value": "missense",
+        },
+        {
+          "label": "Nonsense",
+          "value": "nonsense",
+        },
+      ],
+      "type": "select",
+    },
+  ],
+  "id": "w-form",
+  "kind": "form",
+  "title": "Refine search",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "image" 1`] = `
+{
+  "a11yLabel": "Protein fold",
+  "caption": "Predicted tertiary structure",
+  "id": "w-image",
+  "kind": "image",
+  "title": "Protein fold",
+  "uri": "https://example.com/fold.png",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "map" 1`] = `
+{
+  "a11yLabel": "Map centred on Cambridge, UK.",
+  "href": "https://example.com/map",
+  "id": "w-map",
+  "kind": "map",
+  "summary": "Cambridge, United Kingdom",
+  "title": "Sample origin",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "progress" 1`] = `
+{
+  "a11yLabel": "Progress",
+  "current": 7,
+  "id": "w-progress",
+  "kind": "progress",
+  "label": "Annotating variants",
+  "percentage": 70,
+  "status": "running",
+  "total": 10,
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "table" 1`] = `
+{
+  "a11yLabel": "Table of three gene variants ranked by impact score.",
+  "columns": [
+    "Gene",
+    "Variant",
+    "Score",
+  ],
+  "id": "w-table",
+  "kind": "table",
+  "rows": [
+    [
+      "BRCA1",
+      "c.68_69del",
+      "0.94",
+    ],
+    [
+      "TP53",
+      "R175H",
+      "0.88",
+    ],
+    [
+      "EGFR",
+      "L858R",
+      "0.81",
+    ],
+  ],
+  "title": "Top variants by impact",
+}
+`;
+
+exports[`buildWidgetSpec — fixtures (snapshot per kind) > resolves "timeline" 1`] = `
+{
+  "a11yLabel": "Analysis steps",
+  "events": [
+    {
+      "detail": "Loaded 1.2M calls",
+      "label": "Ingest",
+      "timestamp": "09:00",
+    },
+    {
+      "label": "Annotate",
+      "timestamp": "09:04",
+    },
+    {
+      "detail": "Top 50 selected",
+      "label": "Rank",
+      "timestamp": "09:07",
+    },
+  ],
+  "id": "w-timeline",
+  "kind": "timeline",
+  "title": "Analysis steps",
+}
+`;

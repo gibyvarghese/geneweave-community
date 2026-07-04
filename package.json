@@ -6,7 +6,8 @@
   "description": "geneWeave community edition — the geneWeave apps consuming @weaveintel/* from npm.",
   "license": "MIT",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "clients/*"
   ],
   "scripts": {
     "build": "turbo build",
