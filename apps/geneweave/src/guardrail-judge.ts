@@ -41,7 +41,7 @@ import { getOrCreateModel, type ProviderConfig } from './chat-runtime.js';
  *  OpenAI is tried before Anthropic so a depleted Anthropic account does not
  *  block guardrail evaluation when OpenAI is also configured. */
 const JUDGE_MODEL_PREFERENCE: Record<string, string> = {
-  openai: 'gpt-4o-mini',
+  openai: 'gpt-4o', // capable judge — gpt-4o-mini produces nonsense verdicts (blocks correct answers)
   anthropic: 'claude-haiku-4-5-20251001',
   google: 'gemini-2.0-flash',
   gemini: 'gemini-2.0-flash',

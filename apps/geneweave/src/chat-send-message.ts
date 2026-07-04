@@ -468,6 +468,19 @@ export async function sendMessageImpl(
   if (workingMemoryContext) contextParts.push(workingMemoryContext);
   if (memoryContext) contextParts.push(memoryContext);
   if (episodicContext) contextParts.push(episodicContext);
+  // Tool-capability policy: some models (e.g. GPT-4o) refuse to browse the web unless
+  // explicitly told they can — even with the browser tools available. Inject a short
+  // browsing policy whenever the browser tools are enabled so web use works out of the box.
+  if (enabledTools.some((t) => t.startsWith('browser_'))) {
+    contextParts.push(
+      'Web browsing policy: you have a REAL web browser available through tools ' +
+      '(browser_navigate, browser_snapshot, browser_screenshot, browser_click, browser_fill, ...). ' +
+      'When the user asks you to open a page, look something up on a specific site, or read web ' +
+      'content, USE these tools to actually navigate and read the page, then answer from what you ' +
+      'saw. Never claim you cannot access the internet or external websites — you can, through the ' +
+      'browser tools. Respect authorization and do not attempt to bypass logins you were not given.',
+    );
+  }
   const augmentedPrompt = contextParts.length > 0 ? contextParts.join('\n\n---\n') : undefined;
   const memorySettings = {
     ...settings,

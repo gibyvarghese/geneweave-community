@@ -30,6 +30,13 @@ import { seedAppSpecific } from './app-specific.js';
 import { seedExampleWorkflows } from './workflows.js';
 
 export async function applySeed(db: DatabaseAdapter): Promise<void> {
+  // Capture whether this is a fresh database BEFORE any seeding runs, so the lean
+  // guardrail default below applies only on first install — never overriding an
+  // admin's later enable/disable choices on subsequent boots.
+  // A truly fresh install has no users yet (the first admin is created after boot).
+  // Guardrail count is unreliable here because migrations seed guardrails before this runs.
+  const freshDatabase = (await db.listUsers()).length === 0;
+
   // Phase 4: call the existing seedDefaultData() first to preserve the
   // bulk of prompt/tool/agent/workflow config, then layer the package seeds
   // on top. Once all sections are migrated into seedFramework(), remove this.
@@ -40,4 +47,20 @@ export async function applySeed(db: DatabaseAdapter): Promise<void> {
   await seedFramework(db);
   await seedAppSpecific(db);
   await seedExampleWorkflows(db);
+
+  // ── Community lean guardrail default ──────────────────────────────────────────
+  // The framework ships a large guardrail set; roughly half are LLM-judge based
+  // (model-graded reasoning judges, factuality/hallucination checks, cognitive
+  // checks). Those add latency + cost per turn and, on a weak judge model, can
+  // misfire and block correct answers. Make them OPT-IN so a fresh install is fast
+  // and predictable — deterministic safety (PII redaction, prompt-injection,
+  // credential/SSRF filters, moderation, token budget) stays on. Enable the LLM
+  // judges from the admin Guardrails page, or set GENEWEAVE_ENABLE_LLM_JUDGES=1.
+  // Fresh DB only, so it never clobbers an operator's later choices.
+  if (freshDatabase && process.env['GENEWEAVE_ENABLE_LLM_JUDGES'] !== '1') {
+    const HEAVY = new Set(['model-graded', 'factuality', 'cognitive_check']);
+    for (const g of await db.listGuardrails()) {
+      if (HEAVY.has(g.type) && g.enabled) await db.updateGuardrail(g.id, { enabled: 0 });
+    }
+  }
 }
