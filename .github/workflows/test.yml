@@ -27,7 +27,7 @@ jobs:
         run: npx turbo typecheck
 
       - name: Unit + integration tests (apps + clients)
-        run: npx turbo test
+        run: npx turbo test --concurrency=1
         env:
           JWT_SECRET: ci-test-secret
       # Playwright e2e need a running server — add a dedicated job as the app grows.
