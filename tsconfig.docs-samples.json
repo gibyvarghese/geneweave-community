@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": ["apps/geneweave/docs-samples/.generated/**/*.ts"],
+  "references": [{ "path": "apps/geneweave" }],
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "isolatedModules": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": false,
+    "strict": false,
+    "noImplicitAny": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false,
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true
+  }
+}

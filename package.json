@@ -14,7 +14,8 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "dev": "npm run dev --workspace @weaveintel/geneweave-api",
-    "start": "npm run start --workspace @weaveintel/geneweave-api"
+    "start": "npm run start --workspace @weaveintel/geneweave-api",
+    "test:docs-samples": "node scripts/extract-docs-samples.mjs && tsc --noEmit -p tsconfig.docs-samples.json"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
