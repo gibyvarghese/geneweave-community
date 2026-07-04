@@ -70,6 +70,10 @@ function semanticIntentScore(query: string, corpus: string): number {
 const TAG_AUTO_ON_TABULAR = 'auto-on-tabular';
 const TAG_REQUIRES_INTENT_MATCH = 'requires-intent-match';
 const INTENT_MATCH_THRESHOLD = 0.14;
+// Minimum semantic relevance for a skill to even become a selection candidate.
+// Set above the noise floor so weakly-related skills (e.g. a seeded demo skill
+// scoring ~0.16 against an unrelated question) never reach the selector.
+const SKILL_CANDIDATE_MIN_SCORE = 0.25;
 
 function skillIntentCorpus(skill: SkillMatch['skill']): string {
   const parts: string[] = [];
@@ -220,7 +224,7 @@ export async function discoverSkillsForInput(
     const activation = await activateSkills(userContent, allSkills, {
       maxCandidates: 6,
       maxSelected: 3,
-      minScore: 0.08,
+      minScore: SKILL_CANDIDATE_MIN_SCORE,
       mode: mode === 'direct' ? 'advisory' : 'tool_assisted',
       context: { chatMode: mode },
       selector: async ({ query, mode: invokeMode, candidates }) => {
