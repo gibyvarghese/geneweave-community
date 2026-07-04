@@ -1,0 +1,111 @@
+{
+  "name": "@weaveintel/geneweave-api",
+  "version": "1.0.0",
+  "description": "geneWeave API — server, database, chat engine and all backend services for the geneWeave platform",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:api": "vitest run src/api.test.ts",
+    "test:e2e": "npx playwright test --config playwright.config.ts",
+    "sv:eval": "npx tsx src/features/scientific-validation/evals/run-corpus.ts",
+    "sv:cost-gate": "npx tsx src/features/scientific-validation/evals/cost-gate.ts"
+  },
+  "dependencies": {
+    "@weaveintel/a2a": "^0.1.1",
+    "@weaveintel/agents": "^0.1.1",
+    "@weaveintel/artifacts": "^0.1.1",
+    "@weaveintel/cache": "^0.1.1",
+    "@weaveintel/client": "^0.1.1",
+    "@weaveintel/collab": "^0.1.1",
+    "@weaveintel/core": "^0.1.1",
+    "@weaveintel/cost-governor": "^0.1.1",
+    "@weaveintel/devtools": "^0.1.1",
+    "@weaveintel/encryption": "^0.1.1",
+    "@weaveintel/extraction": "^0.1.1",
+    "@weaveintel/geneweave-ui": "*",
+    "@weaveintel/guardrails": "^0.1.1",
+    "@weaveintel/human-tasks": "^0.1.1",
+    "@weaveintel/identity": "^0.1.1",
+    "@weaveintel/live-agents": "^0.1.1",
+    "@weaveintel/live-agents-runtime": "^0.1.1",
+    "@weaveintel/mcp-client": "^0.1.1",
+    "@weaveintel/mcp-server": "^0.1.1",
+    "@weaveintel/memory": "^0.1.1",
+    "@weaveintel/notes": "^0.1.1",
+    "@weaveintel/notifications": "^0.1.1",
+    "@weaveintel/observability": "^0.1.1",
+    "@weaveintel/persistence": "^0.1.1",
+    "@weaveintel/prompts": "^0.1.1",
+    "@weaveintel/provider-anthropic": "^0.1.1",
+    "@weaveintel/provider-google": "^0.1.1",
+    "@weaveintel/provider-llamacpp": "^0.1.1",
+    "@weaveintel/provider-ollama": "^0.1.1",
+    "@weaveintel/provider-openai": "^0.1.1",
+    "@weaveintel/resilience": "^0.1.1",
+    "@weaveintel/retrieval": "^0.1.1",
+    "@weaveintel/routing": "^0.1.1",
+    "@weaveintel/sandbox": "^0.1.1",
+    "@weaveintel/skills": "^0.1.1",
+    "@weaveintel/testing": "^0.1.1",
+    "@weaveintel/tokens": "^0.1.1",
+    "@weaveintel/tools": "^0.1.1",
+    "@weaveintel/tools-browser": "^0.1.1",
+    "@weaveintel/tools-enterprise": "^0.1.1",
+    "@weaveintel/triggers": "^0.1.1",
+    "@weaveintel/ui-primitives": "^0.1.1",
+    "@weaveintel/voice": "^0.1.1",
+    "@weaveintel/workflows": "^0.1.1",
+    "better-sqlite3": "^11.9.1",
+    "redis": "^4.7.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.59.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@vitest/coverage-v8": "^4.1.9",
+    "@weaveintel/testing": "^0.1.1",
+    "axe-core": "^4.12.1",
+    "lighthouse": "^12.8.2"
+  },
+  "peerDependencies": {
+    "@weaveintel/provider-anthropic": "^0.1.1",
+    "@weaveintel/provider-google": "^0.1.1",
+    "@weaveintel/provider-llamacpp": "^0.1.1",
+    "@weaveintel/provider-ollama": "^0.1.1",
+    "@weaveintel/provider-openai": "^0.1.1"
+  },
+  "peerDependenciesMeta": {
+    "@weaveintel/provider-openai": {
+      "optional": true
+    },
+    "@weaveintel/provider-anthropic": {
+      "optional": true
+    },
+    "@weaveintel/provider-google": {
+      "optional": true
+    },
+    "@weaveintel/provider-ollama": {
+      "optional": true
+    },
+    "@weaveintel/provider-llamacpp": {
+      "optional": true
+    }
+  },
+  "license": "MIT"
+}

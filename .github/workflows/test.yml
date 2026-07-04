@@ -1,0 +1,34 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (pulls @weaveintel/* from npm)
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        run: npx turbo build
+
+      - name: Type check
+        run: npx turbo typecheck
+
+      - name: Unit + integration tests
+        working-directory: apps/geneweave
+        run: npx vitest run
+        env:
+          JWT_SECRET: ci-test-secret
+      # Playwright e2e need a running server — add a dedicated job as the app grows.

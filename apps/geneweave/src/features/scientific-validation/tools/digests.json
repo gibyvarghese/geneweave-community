@@ -1,0 +1,7 @@
+{
+  "sandbox-sym": "sha256:563205efb7511a088cc81a8f005bee3dd41217d857a21c1dd4b6005a351ca0a3",
+  "sandbox-num": "sha256:65961c0981482bbd9788415c9ccd231f3f9729901341e682a4e512be7f836622",
+  "sandbox-dom": "sha256:971aff95f8ecb1ba3856d8613e882af8174b7ec3a406c71b9941736fa56c50b9",
+  "_note": "Local image IDs — built via docker build -t weaveintel/sandbox-{sym,num,dom}:local",
+  "_updated": "2026-04-21T21:59:23Z"
+}

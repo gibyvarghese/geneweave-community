@@ -1,0 +1,65 @@
+{
+  "name": "@weaveintel/geneweave-ui",
+  "version": "1.0.0",
+  "description": "geneWeave UI — client-side TypeScript application shell for the geneWeave platform",
+  "type": "module",
+  "main": "./dist/ui-client.js",
+  "types": "./dist/ui-client.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/ui-client.d.ts",
+      "import": "./dist/ui-client.js",
+      "default": "./dist/ui-client.js"
+    },
+    "./styles": {
+      "types": "./dist/ui/styles.d.ts",
+      "import": "./dist/ui/styles.js",
+      "default": "./dist/ui/styles.js"
+    },
+    "./notes": {
+      "types": "./dist/notes/index.d.ts",
+      "import": "./dist/notes/index.js",
+      "default": "./dist/notes/index.js"
+    },
+    "./brand": {
+      "types": "./dist/brand/geneweave-brand.d.ts",
+      "import": "./dist/brand/geneweave-brand.js",
+      "default": "./dist/brand/geneweave-brand.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node scripts/gen-tokens-css.mjs && tsc -b && node scripts/bundle-notes-editor.mjs && node scripts/build-sv-css.mjs",
+    "build:tsc": "tsc -b",
+    "build:bundle": "node scripts/bundle-notes-editor.mjs",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tiptap/core": "^2.11.5",
+    "@tiptap/extension-bubble-menu": "^2.11.5",
+    "@tiptap/extension-floating-menu": "^2.11.5",
+    "@tiptap/extension-link": "^2.11.5",
+    "@tiptap/extension-placeholder": "^2.11.5",
+    "@tiptap/extension-table": "^2.27.2",
+    "@tiptap/extension-table-cell": "^2.27.2",
+    "@tiptap/extension-table-header": "^2.27.2",
+    "@tiptap/extension-table-row": "^2.27.2",
+    "@tiptap/extension-task-item": "^2.11.5",
+    "@tiptap/extension-task-list": "^2.11.5",
+    "@tiptap/extension-underline": "^2.11.5",
+    "@tiptap/pm": "^2.11.5",
+    "@tiptap/starter-kit": "^2.11.5",
+    "@weaveintel/notes": "^0.1.1",
+    "@weaveintel/tokens": "^0.1.1",
+    "@weaveintel/ui-primitives": "^0.1.1",
+    "esbuild": "^0.25.0"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^3.2.6"
+  }
+}

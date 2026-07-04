@@ -1,0 +1,35 @@
+{
+  "name": "geneweave-community",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "geneWeave community edition — the geneWeave apps consuming @weaveintel/* from npm.",
+  "license": "MIT",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "dev": "npm run dev --workspace @weaveintel/geneweave-api",
+    "start": "npm run start --workspace @weaveintel/geneweave-api"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@changesets/cli": "^2.27.0",
+    "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^3.2.6",
+    "dotenv": "^17.4.2",
+    "openai": "^6.45.0",
+    "prettier": "^3.3.0",
+    "tsx": "^4.21.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.6"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@10.0.0"
+}

@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.turbo/
+coverage/
+test-results/
+playwright-report/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# databases / local data — never commit
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm

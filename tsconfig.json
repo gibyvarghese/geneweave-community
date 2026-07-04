@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "apps/geneweave"
+    },
+    {
+      "path": "apps/geneweave-ui"
+    }
+  ]
+}

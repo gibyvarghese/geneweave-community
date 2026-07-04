@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Scientific Validation eval corpus — 20 hypotheses spanning known-true, known-false, ill-posed, and p-hacked categories.",
+  "hypotheses": [
+    {
+      "id": "corpus-kt-001",
+      "category": "known-true",
+      "title": "Smoking causes lung cancer",
+      "statement": "Cigarette smoking increases the relative risk of developing lung cancer in adult humans by at least 10-fold compared to never-smokers, based on a dose-response relationship supported by multiple large cohort studies.",
+      "domainTags": ["oncology", "epidemiology", "public-health"],
+      "expectedVerdict": "supported",
+      "rationale": "One of the most robustly established causal relationships in medicine. Consistently supported by Bradford Hill criteria."
+    },
+    {
+      "id": "corpus-kt-002",
+      "category": "known-true",
+      "title": "Statins reduce LDL cholesterol",
+      "statement": "HMG-CoA reductase inhibitors (statins) reduce low-density lipoprotein (LDL) cholesterol by 30–50% in hypercholesterolaemic patients as a class effect, independent of specific statin molecule.",
+      "domainTags": ["cardiology", "pharmacology", "lipidology"],
+      "expectedVerdict": "supported",
+      "rationale": "Established pharmacological mechanism; replicated in thousands of RCTs."
+    },
+    {
+      "id": "corpus-kt-003",
+      "category": "known-true",
+      "title": "Vaccination reduces measles incidence",
+      "statement": "Population-level measles-mumps-rubella (MMR) vaccination coverage above 95% reduces measles incidence to near-zero levels through herd immunity in communities where the vaccine is administered.",
+      "domainTags": ["infectious-disease", "immunology", "epidemiology"],
+      "expectedVerdict": "supported",
+      "rationale": "WHO-validated elimination data from multiple countries post-vaccination programmes."
+    },
+    {
+      "id": "corpus-kt-004",
+      "category": "known-true",
+      "title": "Aspirin prevents recurrent MI in secondary prevention",
+      "statement": "Low-dose aspirin (75–100 mg/day) reduces the rate of recurrent non-fatal myocardial infarction by approximately 25% in patients with established cardiovascular disease compared to placebo.",
+      "domainTags": ["cardiology", "pharmacology", "secondary-prevention"],
+      "expectedVerdict": "supported",
+      "rationale": "Antithrombotic Trialists' Collaboration meta-analysis (50,000+ patients)."
+    },
+    {
+      "id": "corpus-kt-005",
+      "category": "known-true",
+      "title": "Metformin lowers fasting glucose in type 2 diabetes",
+      "statement": "Metformin monotherapy reduces fasting plasma glucose by 1–2 mmol/L (18–36 mg/dL) and HbA1c by 1–2% in treatment-naive adults with type 2 diabetes mellitus.",
+      "domainTags": ["endocrinology", "pharmacology", "diabetes"],
+      "expectedVerdict": "supported",
+      "rationale": "Extensive RCT evidence including UKPDS; standard-of-care status."
+    },
+    {
+      "id": "corpus-kf-001",
+      "category": "known-false",
+      "title": "Homeopathic solutions outperform placebo for infectious disease",
+      "statement": "30C homeopathic dilutions of Oscillococcinum reduce influenza symptom duration by more than 2 days compared to placebo in a double-blind RCT setting.",
+      "domainTags": ["infectious-disease", "alternative-medicine", "pharmacology"],
+      "expectedVerdict": "refuted",
+      "rationale": "Cochrane systematic review finds no evidence beyond placebo; 30C dilution contains no active molecules."
+    },
+    {
+      "id": "corpus-kf-002",
+      "category": "known-false",
+      "title": "MMR vaccine causes autism",
+      "statement": "Administration of the measles-mumps-rubella combined vaccine to children aged 12–15 months causes autism spectrum disorder at an increased rate compared to unvaccinated children.",
+      "domainTags": ["immunology", "neurology", "epidemiology"],
+      "expectedVerdict": "refuted",
+      "rationale": "Large-scale population studies (Denmark, UK, Japan) show no association. Wakefield 1998 paper retracted."
+    },
+    {
+      "id": "corpus-kf-003",
+      "category": "known-false",
+      "title": "Vitamin C megadoses cure common cold",
+      "statement": "Daily supplementation with ≥2 g of ascorbic acid (vitamin C) reduces the incidence of common cold infections in the general population by 50% or more.",
+      "domainTags": ["infectious-disease", "nutrition", "immunology"],
+      "expectedVerdict": "refuted",
+      "rationale": "Cochrane review (Hemilä & Chalker 2013): no significant reduction in cold incidence in the general population."
+    },
+    {
+      "id": "corpus-kf-004",
+      "category": "known-false",
+      "title": "Detox diets clear toxins from blood",
+      "statement": "Commercially marketed 3–7 day juice-based detoxification diets measurably reduce serum concentrations of hepatotoxic compounds (heavy metals, pesticide residues) beyond what normal hepatorenal clearance achieves over the same period.",
+      "domainTags": ["nutrition", "hepatology", "toxicology"],
+      "expectedVerdict": "refuted",
+      "rationale": "No peer-reviewed RCT evidence; the liver and kidneys perform continuous clearance independently of dietary interventions."
+    },
+    {
+      "id": "corpus-kf-005",
+      "category": "known-false",
+      "title": "5G radiation damages DNA",
+      "statement": "Exposure to 5G non-ionising radiofrequency electromagnetic fields at levels below ICNIRP safety limits causes double-strand DNA breaks in human somatic cells in vivo.",
+      "domainTags": ["biophysics", "oncology", "public-health"],
+      "expectedVerdict": "refuted",
+      "rationale": "Non-ionising RF below safety limits lacks sufficient photon energy to cause ionisation or DNA strand breaks; no reproducible in-vivo evidence."
+    },
+    {
+      "id": "corpus-ip-001",
+      "category": "ill-posed",
+      "title": "Coffee is bad for health",
+      "statement": "Consuming coffee is bad for human health.",
+      "domainTags": ["nutrition", "epidemiology"],
+      "expectedVerdict": "needs_revision",
+      "rationale": "Not falsifiable as stated. 'Bad' is undefined; outcomes, dose, population unspecified. Agent should flag as requiring refinement."
+    },
+    {
+      "id": "corpus-ip-002",
+      "category": "ill-posed",
+      "title": "Stress causes disease",
+      "statement": "Psychological stress causes disease in humans.",
+      "domainTags": ["psychiatry", "epidemiology"],
+      "expectedVerdict": "needs_revision",
+      "rationale": "Insufficiently specific: no outcome, dose, timeframe, stress type, or mechanism. Cannot be tested as written."
+    },
+    {
+      "id": "corpus-ip-003",
+      "category": "ill-posed",
+      "title": "Sleep is important",
+      "statement": "Getting enough sleep is important for people.",
+      "domainTags": ["sleep-medicine"],
+      "expectedVerdict": "needs_revision",
+      "rationale": "Tautological and unmeasurable. No comparator, no metric, no population."
+    },
+    {
+      "id": "corpus-ip-004",
+      "category": "ill-posed",
+      "title": "Genetics determines personality",
+      "statement": "A person's personality is determined by their genetics.",
+      "domainTags": ["genetics", "psychiatry", "psychology"],
+      "expectedVerdict": "needs_revision",
+      "rationale": "Binary determinism claim ignores gene-environment interaction; heritability estimates are not 0% or 100%."
+    },
+    {
+      "id": "corpus-ip-005",
+      "category": "ill-posed",
+      "title": "All natural things are safe",
+      "statement": "All naturally occurring substances are safe for human consumption.",
+      "domainTags": ["toxicology"],
+      "expectedVerdict": "refuted",
+      "rationale": "Strictly speaking this is falsifiable (counterexamples: arsenic, botulinum toxin) but the category classification as ill-posed highlights confounded framing."
+    },
+    {
+      "id": "corpus-ph-001",
+      "category": "p-hacked",
+      "title": "Chocolate consumption improves exam scores",
+      "statement": "Daily consumption of ≥20 g of dark chocolate during a 4-week examination period improves university students' exam scores by at least 5% compared to a control group consuming no chocolate, as measured by end-of-semester GPA.",
+      "domainTags": ["nutrition", "cognitive-science", "education"],
+      "expectedVerdict": "inconclusive",
+      "rationale": "Based on a single underpowered study with multiple outcome switching; effect size implausible; confounders uncontrolled."
+    },
+    {
+      "id": "corpus-ph-002",
+      "category": "p-hacked",
+      "title": "Wearing red clothing increases athletic performance",
+      "statement": "Athletes who wear red uniforms win 60% or more of competitive bouts in Olympic combat sports, compared to a 50% baseline expected by chance, implying a causal performance advantage conferred by red colouration.",
+      "domainTags": ["sports-science", "psychology", "epidemiology"],
+      "expectedVerdict": "inconclusive",
+      "rationale": "Hill & Barton 2005 finding replicated inconsistently; selection bias and confounds not adequately addressed."
+    },
+    {
+      "id": "corpus-ph-003",
+      "category": "p-hacked",
+      "title": "Power posing increases testosterone",
+      "statement": "Adopting expansive 'power poses' for 2 minutes increases salivary testosterone by >15% and decreases cortisol by >15% in healthy adults compared to baseline, replicating Carney, Cuddy & Yap (2010).",
+      "domainTags": ["psychology", "endocrinology", "behavioural-science"],
+      "expectedVerdict": "refuted",
+      "rationale": "Ranehill et al. 2015 direct replication failed; multiple pre-registered replications found no hormonal effect."
+    },
+    {
+      "id": "corpus-ph-004",
+      "category": "p-hacked",
+      "title": "Sugar consumption causes hyperactivity in children",
+      "statement": "Dietary sugar intake causes clinically significant hyperactivity in children, as measured by standardised ADHD rating scales, independent of expectation effects in parents and observers.",
+      "domainTags": ["nutrition", "paediatrics", "psychiatry"],
+      "expectedVerdict": "refuted",
+      "rationale": "Wolraich et al. 1995 double-blind trial and Cochrane review: no effect beyond placebo when expectation effects controlled."
+    },
+    {
+      "id": "corpus-ph-005",
+      "category": "p-hacked",
+      "title": "Listening to Mozart increases infant IQ",
+      "statement": "Infants who listen to Mozart recordings for ≥30 minutes per day during the first 12 months of life score ≥5 IQ points higher on standardised developmental assessments at age 2 compared to controls.",
+      "domainTags": ["developmental-psychology", "cognitive-science", "education"],
+      "expectedVerdict": "inconclusive",
+      "rationale": "'Mozart effect' in infants is unsupported by longitudinal RCT evidence; original effect was in adults, short-term, and spatiotemporal only."
+    }
+  ]
+}
