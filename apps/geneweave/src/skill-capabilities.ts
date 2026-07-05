@@ -26,7 +26,12 @@ import { getActiveGuardrailEmbeddingModel } from './guardrail-judge.js';
 // even though it shares no keywords. Falls back to lexical automatically if no embedder is configured.
 
 export function semanticSkillMatchingEnabled(): boolean {
-  return process.env['WEAVE_SKILL_SEMANTIC'] === '1' || process.env['WEAVE_SKILL_SEMANTIC'] === 'true';
+  // Default ON: whenever a workspace has an embedding model configured, match skills by meaning.
+  // Safe because `buildSkillRetriever` returns undefined (→ lexical) when no embedder is available, so
+  // this never breaks a workspace without embeddings. Set WEAVE_SKILL_SEMANTIC=0 to force lexical-only.
+  const v = process.env['WEAVE_SKILL_SEMANTIC'];
+  if (v === '0' || v === 'false') return false;
+  return true;
 }
 
 // The retriever holds a cached embedding index that re-embeds only *changed* skill cards, so it must
