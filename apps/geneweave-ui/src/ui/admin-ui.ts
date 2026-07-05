@@ -783,58 +783,61 @@ export function renderAdminForm(
   );
 
   const form = h('div', { className: 'chart-box', style: 'margin-bottom:16px;' }, actionBar);
+  // One consistent field model for every admin form: a single column of top-aligned labels with
+  // full-width controls (see .admin-form-fields / .admin-field* in styles.ts).
+  const fieldsWrap = h('div', { className: 'admin-form-fields' });
 
   (schema.fields || []).forEach((field: any) => {
     const currentVal = (state.adminForm?.[field.key] ?? '') as any;
-    const row = h('div', { style: 'margin-bottom:10px;' },
-      h('label', { style: 'display:block;font-size:12px;font-weight:600;color:var(--fg2);margin-bottom:4px;' }, field.label)
-    );
+    const isCheckbox = field.type === 'checkbox';
+    const fieldEl = h('div', { className: 'admin-field' + (isCheckbox ? ' checkbox' : '') });
+    const label = h('label', { className: 'admin-field-label' }, field.label);
+    // Whether this field holds JSON/code (monospace helps readability).
+    const isMono = field.save === 'json' || field.save === 'jsonStr' || field.mono;
 
-    if (field.type === 'checkbox') {
-      const checkbox = h('input', {
+    if (isCheckbox) {
+      fieldEl.appendChild(h('input', {
         type: 'checkbox',
         checked: !!currentVal,
-        onChange: (e: Event) => {
-          state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLInputElement).checked };
-        },
-      }) as HTMLInputElement;
-      row.appendChild(checkbox);
-    } else if (field.options && Array.isArray(field.options)) {
-      const select = h('select', {
-        style: 'width:100%;padding:8px 10px;border:1px solid var(--bg4);border-radius:8px;background:var(--bg2);color:var(--fg);',
-        onChange: (e: Event) => {
-          state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLSelectElement).value };
-        },
-      }) as HTMLSelectElement;
-      field.options.forEach((option: string) => {
-        const el = h('option', { value: option }, option) as HTMLOptionElement;
-        if (String(currentVal) === String(option)) el.selected = true;
-        select.appendChild(el);
-      });
-      row.appendChild(select);
-    } else if (field.textarea) {
-      row.appendChild(h('textarea', {
-        rows: String(field.rows || 3),
-        style: 'width:100%;padding:8px 10px;border:1px solid var(--bg4);border-radius:8px;background:var(--bg2);color:var(--fg);font-family:var(--mono);',
-        value: String(currentVal ?? ''),
-        onInput: (e: Event) => {
-          state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLTextAreaElement).value };
-        },
+        onChange: (e: Event) => { state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLInputElement).checked }; },
       }));
+      fieldEl.appendChild(label);
     } else {
-      row.appendChild(h('input', {
-        type: field.type === 'number' ? 'number' : 'text',
-        value: String(currentVal ?? ''),
-        style: 'width:100%;padding:8px 10px;border:1px solid var(--bg4);border-radius:8px;background:var(--bg2);color:var(--fg);',
-        onInput: (e: Event) => {
-          state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLInputElement).value };
-        },
-      }));
+      fieldEl.appendChild(label);
+      if (field.options && Array.isArray(field.options)) {
+        const select = h('select', {
+          className: 'admin-field-input',
+          onChange: (e: Event) => { state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLSelectElement).value }; },
+        }) as HTMLSelectElement;
+        field.options.forEach((option: string) => {
+          const el = h('option', { value: option }, option) as HTMLOptionElement;
+          if (String(currentVal) === String(option)) el.selected = true;
+          select.appendChild(el);
+        });
+        fieldEl.appendChild(select);
+      } else if (field.textarea) {
+        fieldEl.appendChild(h('textarea', {
+          className: 'admin-field-input' + (isMono ? ' mono' : ''),
+          rows: String(field.rows || 4),
+          placeholder: field.placeholder || '',
+          value: String(currentVal ?? ''),
+          onInput: (e: Event) => { state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLTextAreaElement).value }; },
+        }));
+      } else {
+        fieldEl.appendChild(h('input', {
+          className: 'admin-field-input',
+          type: field.type === 'number' ? 'number' : 'text',
+          placeholder: field.placeholder || '',
+          value: String(currentVal ?? ''),
+          onInput: (e: Event) => { state.adminForm = { ...(state.adminForm || {}), [field.key]: (e.target as HTMLInputElement).value }; },
+        }));
+      }
     }
 
-    form.appendChild(row);
+    fieldsWrap.appendChild(fieldEl);
   });
 
+  form.appendChild(fieldsWrap);
   return form;
 }
 

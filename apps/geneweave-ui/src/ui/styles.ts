@@ -839,7 +839,9 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .table-wrap h3{font-size:14px;color:var(--fg2);padding:20px 20px 0;font-weight:600}
 .admin-main-panel{display:flex;flex-direction:column;gap:12px;min-width:0}
 .admin-content-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
-.admin-content-grid.editing{grid-template-columns:minmax(0,1fr) minmax(300px,380px)}
+/* Editing is a focused, full-width single column — a form with many fields must not be crammed into a
+   narrow side panel. The form's own max-width keeps line length readable. */
+.admin-content-grid.editing{grid-template-columns:minmax(0,1fr)}
 .admin-list-panel{min-width:0}
 .admin-list-header{display:flex;align-items:center;justify-content:space-between;padding:20px 20px 0}
 .admin-list-header h3{margin:0;font-size:14px;color:var(--fg2);font-weight:600}
@@ -930,6 +932,21 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .admin-col-manager-add:hover:not(:disabled){background:color-mix(in oklab,var(--accent) 14%, var(--bg3));border-color:var(--accent);color:var(--accent2)}
 .admin-form-action-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bg4)}
 .admin-form-title{font-size:15px;font-weight:700;color:var(--fg)}
+/* ── Consistent admin form field model (single column, top-aligned labels, full-width inputs) ──
+   Follows form-UX best practice: labels directly above their control (fastest completion), a single
+   column, full-width fields, and a steady vertical rhythm. One model is reused for every admin form. */
+.admin-form-fields{display:flex;flex-direction:column;gap:18px;max-width:760px}
+.admin-field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.admin-field-label{font-size:13px;font-weight:600;color:var(--fg2);line-height:1.4}
+.admin-field-input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--bg4);border-radius:8px;background:var(--bg2);color:var(--fg);font-size:14px;font-family:inherit;transition:border-color .15s ease}
+.admin-field-input:focus{border-color:var(--accent);outline:none}
+.admin-field-input::placeholder{color:var(--fg3)}
+textarea.admin-field-input{min-height:96px;resize:vertical;line-height:1.55}
+textarea.admin-field-input.mono{font-family:var(--mono);font-size:13px}
+select.admin-field-input{cursor:pointer;appearance:auto}
+.admin-field.checkbox{flex-direction:row;align-items:center;gap:10px}
+.admin-field.checkbox .admin-field-label{order:2;font-weight:500;color:var(--fg)}
+.admin-field.checkbox input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 .admin-form-action-btns{display:flex;align-items:center;gap:8px}
 .admin-form-btn{padding:6px 16px;font-size:13px;border-radius:8px;border:1px solid var(--bg4);background:var(--bg3);color:var(--fg);cursor:pointer;font-weight:500;transition:background .1s,border-color .1s}
 .admin-form-btn:hover{background:var(--bg);border-color:var(--fg3)}
