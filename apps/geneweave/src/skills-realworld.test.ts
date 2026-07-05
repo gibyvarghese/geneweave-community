@@ -15,7 +15,7 @@ import type { Model, ExecutionContext } from '@weaveintel/core';
 import { skillFromRow } from '@weaveintel/skills';
 import { SQLiteAdapter } from './db-sqlite.js';
 import { discoverSkillsForInput } from './chat-skills-utils.js';
-import { orderSkillMatchesByComposition, scanSkillForThreats, importExternalSkill } from './skill-capabilities.js';
+import { orderSkillMatchesByComposition, scanSkillForThreats, importExternalSkill, semanticSkillMatchingEnabled } from './skill-capabilities.js';
 
 function loadKey(): string | undefined {
   if (process.env['OPENAI_API_KEY']) return process.env['OPENAI_API_KEY'];
@@ -119,6 +119,28 @@ describe('real-world skills', () => {
     const matches = [pick('analysis-report'), pick('live-data-analysis')];
     const ordered = orderSkillMatchesByComposition(rows as never, matches).map((m) => m.skill.id);
     expect(ordered.indexOf('live-data-analysis')).toBeLessThan(ordered.indexOf('analysis-report'));
+  });
+
+  it('semantic skill matching is ON by default and can be turned off with WEAVE_SKILL_SEMANTIC=0', () => {
+    const prev = process.env['WEAVE_SKILL_SEMANTIC'];
+    delete process.env['WEAVE_SKILL_SEMANTIC'];
+    expect(semanticSkillMatchingEnabled()).toBe(true);   // default ON (falls back to lexical if no embedder)
+    process.env['WEAVE_SKILL_SEMANTIC'] = '0';
+    expect(semanticSkillMatchingEnabled()).toBe(false);   // explicit opt-out
+    if (prev === undefined) delete process.env['WEAVE_SKILL_SEMANTIC']; else process.env['WEAVE_SKILL_SEMANTIC'] = prev;
+  });
+
+  it('COMPOSITION: admin-authored edges (via updateSkill columns) persist and drive ordering', async () => {
+    const base = (id: string, name: string) => ({ id, name, description: `${name} does a thing`, category: 'general', trigger_patterns: '[]', instructions: 'do it', tool_names: null, examples: null, tags: null, priority: 0, version: '1.0', enabled: 1, tool_policy_key: null, domain_sections: null });
+    await db.createSkill(base('custom-loader', 'Custom Loader'));
+    await db.createSkill(base('custom-report', 'Custom Report'));
+    // Exactly what the admin create/update handler writes for composition edges:
+    await db.updateSkill('custom-loader', { provides: JSON.stringify(['custom.loaded']) } as never);
+    await db.updateSkill('custom-report', { requires: JSON.stringify(['custom-loader']), precondition: JSON.stringify(['custom.loaded']) } as never);
+    const rows = await db.listEnabledSkills();
+    const pick = (id: string) => ({ skill: skillFromRow(rows.find((r) => r.id === id)!) });
+    const ordered = orderSkillMatchesByComposition(rows as never, [pick('custom-report'), pick('custom-loader')]).map((m) => m.skill.id);
+    expect(ordered.indexOf('custom-loader')).toBeLessThan(ordered.indexOf('custom-report'));
   });
 
   it('COMPOSITION: a skill whose dependency is NOT co-selected is not forced to the back', async () => {

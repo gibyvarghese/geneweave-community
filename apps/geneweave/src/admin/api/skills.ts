@@ -10,6 +10,18 @@ import type { SkillRow } from '../../db-types.js';
 import { scanSkillForThreats } from '../../skill-capabilities.js';
 import type { RouterLike, AdminHelpers } from './types.js';
 
+// Phase-1 composition edges (m148 columns). The skills table stores these as JSON arrays / ints; the
+// row→skill mapper reads them via the app's composition layer. Extract them from an admin request body.
+function compositionFields(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of ['provides', 'requires', 'precondition', 'composes_with', 'conflicts_with', 'input_modalities']) {
+    if (body[k] !== undefined) out[k] = JSON.stringify(body[k] ?? []);
+  }
+  if (body['trust'] !== undefined) out['trust'] = Number(body['trust']);
+  if (body['trust_tier'] !== undefined) out['trust_tier'] = Number(body['trust_tier']);
+  return out;
+}
+
 export function registerSkillRoutes(
   router: RouterLike,
   db: DatabaseAdapter,
@@ -75,6 +87,9 @@ export function registerSkillRoutes(
       domain_sections: body['domain_sections'] ? JSON.stringify(body['domain_sections']) : null,
       execution_contract: body['execution_contract'] ? JSON.stringify(body['execution_contract']) : null,
     });
+    // Persist any composition edges supplied on create (via the generic updateSkill, which writes the m148 columns).
+    const comp = compositionFields(body);
+    if (Object.keys(comp).length) await db.updateSkill(id, comp as never);
     const skill = await db.getSkill(id);
     json(res, 201, { skill });
   }, { auth: true, csrf: true });
@@ -125,6 +140,7 @@ export function registerSkillRoutes(
       }
     }
 
+    Object.assign(fields, compositionFields(body)); // Phase-1 composition edges
     await db.updateSkill(params['id']!, fields as Partial<Omit<SkillRow, 'id' | 'created_at' | 'updated_at'>>);
     const skill = await db.getSkill(params['id']!);
     json(res, 200, { skill });

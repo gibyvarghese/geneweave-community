@@ -140,6 +140,15 @@ export const CALLABLE_CAPABILITY_ADMIN_TABS: Record<string, AdminTabDef> = {
       { key: 'tool_names', label: 'Allowed Tool Guidance (JSON array, optional)', textarea: true, rows: 3, save: 'json' },
       { key: 'tags', label: 'Semantic Hints (JSON array, optional)', textarea: true, rows: 2, save: 'json' },
       { key: 'trigger_patterns', label: 'Legacy Trigger Hints (optional, semantic activation is primary)', textarea: true, rows: 2, save: 'json' },
+      // ── Composition edges (Phase 1) — how this skill fits into a multi-skill plan ──
+      { key: 'provides', label: 'Provides (JSON array of capability tokens this skill PRODUCES, e.g. ["analysis.done"])', textarea: true, rows: 2, save: 'json' },
+      { key: 'requires', label: 'Requires (JSON array of skill ids that must run BEFORE this one, e.g. ["live-data-analysis"])', textarea: true, rows: 2, save: 'json' },
+      { key: 'precondition', label: 'Precondition (JSON array of capability tokens that must exist first, e.g. ["dataset.loaded"])', textarea: true, rows: 2, save: 'json' },
+      { key: 'composes_with', label: 'Composes With (JSON array of skill ids that pair well — soft hint)', textarea: true, rows: 2, save: 'json' },
+      { key: 'conflicts_with', label: 'Conflicts With (JSON array of skill ids that must NOT run alongside this one)', textarea: true, rows: 2, save: 'json' },
+      { key: 'input_modalities', label: 'Input Modalities (JSON array: ["text","image","audio","pdf","table","code"] — omit for text-only)', textarea: true, rows: 2, save: 'json' },
+      { key: 'trust', label: 'Trust (composition privilege level, 0 = default; a skill may only pull in dependencies at or below its own trust)', type: 'number', save: 'int', default: 0 },
+      { key: 'trust_tier', label: 'Trust Tier (1 advice · 2 verified/scripts · 3 org-trusted/network · 4 first-party)', type: 'number', save: 'int', default: 1 },
       { key: 'priority', label: 'Priority', type: 'number', save: 'int', default: 0 },
       { key: 'version', label: 'Version', default: '1.0' },
       { key: 'prompt_id', label: 'Prompt ID (optional)' },
@@ -151,6 +160,26 @@ export const CALLABLE_CAPABILITY_ADMIN_TABS: Record<string, AdminTabDef> = {
       { key: 'tool_policy_key', label: 'Tool Policy Key (optional)' },
       { key: 'supervisor_agent_id', label: 'Supervisor Agent ID (optional pin — overrides tenant+category resolution)' },
       { key: 'enabled', label: 'Enabled', type: 'checkbox', save: 'bool', default: true },
+    ],
+  },
+  // Read-only review queue of skills the miner proposed from failing run traces. Every proposal is
+  // disabled/draft; approve or reject via POST /api/admin/skill-proposals/:id/{approve,reject}.
+  'skill-proposals': {
+    singular: 'Mined Skill Proposal', apiPath: 'admin/skill-proposals', listKey: 'proposals',
+    cols: ['name', 'pattern', 'occurrences', 'status', 'created_at'],
+    readOnly: true,
+    fields: [
+      { key: 'id', label: 'Proposal ID', readonly: true },
+      { key: 'proposed_skill_id', label: 'Proposed Skill ID', readonly: true },
+      { key: 'name', label: 'Name', readonly: true },
+      { key: 'description', label: 'Summary', textarea: true, rows: 3, readonly: true },
+      { key: 'instructions', label: 'Drafted Guidance', textarea: true, rows: 6, readonly: true },
+      { key: 'tool_names', label: 'Tools', readonly: true },
+      { key: 'pattern', label: 'Recurring Failure Pattern', readonly: true },
+      { key: 'occurrences', label: 'Occurrences', readonly: true },
+      { key: 'safety', label: 'Safety Scan (JSON)', textarea: true, rows: 3, readonly: true },
+      { key: 'status', label: 'Status', readonly: true },
+      { key: 'created_at', label: 'Mined At', readonly: true },
     ],
   },
   'worker-agents': {
