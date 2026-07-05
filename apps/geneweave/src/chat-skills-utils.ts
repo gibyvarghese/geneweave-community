@@ -13,6 +13,7 @@ import {
   type SkillMatch,
 } from '@weaveintel/skills';
 import type { DatabaseAdapter } from './db.js';
+import { buildSkillRetriever, orderSkillMatchesByComposition } from './skill-capabilities.js';
 import type { ChatScopeGuard } from './chat-scope-guard.js';
 import type { ScopeContext } from '@weaveintel/identity/scope';
 
@@ -221,12 +222,17 @@ export async function discoverSkillsForInput(
     const allSkills = registry.list();
     const hasTabularAttachment = runtimeHints?.hasTabularAttachment === true;
 
+    // Phase 0 (opt-in): match skills by MEANING using the workspace embedding model when
+    // WEAVE_SKILL_SEMANTIC=1; otherwise this is undefined and the built-in lexical matcher is used.
+    const retriever = buildSkillRetriever(ctx);
+
     const activation = await activateSkills(userContent, allSkills, {
       maxCandidates: 6,
       maxSelected: 3,
       minScore: SKILL_CANDIDATE_MIN_SCORE,
       mode: mode === 'direct' ? 'advisory' : 'tool_assisted',
       context: { chatMode: mode },
+      ...(retriever ? { retriever } : {}),
       selector: async ({ query, mode: invokeMode, candidates }) => {
         const decision = await reasonAboutSkillSelection(model, ctx, query, invokeMode, candidates, parseJson, hasTabularAttachment);
         if (!decision) {
@@ -305,6 +311,10 @@ export async function discoverSkillsForInput(
       }
       matches = allowed;
     }
+
+    // Phase 1: when several skills fire, run them in dependency order (e.g. analyse → write-up).
+    // Uses the composition columns carried on the raw skill rows; a no-op when no edges are declared.
+    matches = orderSkillMatchesByComposition(rows, matches);
 
     const toolNames = collectSkillTools(matches);
     return { matches, toolNames };

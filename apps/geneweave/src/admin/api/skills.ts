@@ -7,6 +7,7 @@
 import { newUUIDv7 } from '@weaveintel/core';
 import type { DatabaseAdapter } from '../../db.js';
 import type { SkillRow } from '../../db-types.js';
+import { scanSkillForThreats } from '../../skill-capabilities.js';
 import type { RouterLike, AdminHelpers } from './types.js';
 
 export function registerSkillRoutes(
@@ -40,6 +41,21 @@ export function registerSkillRoutes(
     }
     const validatedDescription = requireDetailedDescription(body['description'], 'skill', res);
     if (!validatedDescription) return;
+
+    // Phase 3 security gate: a skill's text goes straight into the model's system prompt, so scan it
+    // for hidden prompt-injection before saving. Hidden characters are always blocked; an instructional
+    // phrase (which a genuine security/red-team skill may quote) can be saved with explicit acknowledgement.
+    {
+      const threat = scanSkillForThreats({ name: body['name'] as string, description: validatedDescription, instructions: body['instructions'] as string });
+      if (!threat.safe && (threat.hardBlock || body['acknowledgeInjectionRisk'] !== true)) {
+        json(res, 400, {
+          error: 'Skill rejected by the security scan (possible prompt-injection)',
+          findings: threat.findings,
+          hint: threat.hardBlock ? 'Hidden/invisible characters are not allowed.' : 'If this wording is intentional (e.g. a security-training skill), resend with acknowledgeInjectionRisk: true.',
+        });
+        return;
+      }
+    }
 
     const id = 'skill-' + newUUIDv7().slice(-8);
     await db.createSkill({
@@ -90,6 +106,24 @@ export function registerSkillRoutes(
     if (body['enabled'] !== undefined) fields['enabled'] = body['enabled'] ? 1 : 0;
     if (body['domain_sections'] !== undefined) fields['domain_sections'] = body['domain_sections'] ? JSON.stringify(body['domain_sections']) : null;
     if (body['execution_contract'] !== undefined) fields['execution_contract'] = body['execution_contract'] ? JSON.stringify(body['execution_contract']) : null;
+
+    // Phase 3 security gate on edits — but only when the model-facing text actually changes (a plain
+    // enabled/priority toggle shouldn't re-scan). Scan the NEW text that will reach the system prompt.
+    if (fields['name'] !== undefined || fields['description'] !== undefined || fields['instructions'] !== undefined) {
+      const threat = scanSkillForThreats({
+        name: (fields['name'] as string) ?? existing.name,
+        description: (fields['description'] as string) ?? existing.description,
+        instructions: (fields['instructions'] as string) ?? existing.instructions,
+      });
+      if (!threat.safe && (threat.hardBlock || body['acknowledgeInjectionRisk'] !== true)) {
+        json(res, 400, {
+          error: 'Skill rejected by the security scan (possible prompt-injection)',
+          findings: threat.findings,
+          hint: threat.hardBlock ? 'Hidden/invisible characters are not allowed.' : 'If this wording is intentional, resend with acknowledgeInjectionRisk: true.',
+        });
+        return;
+      }
+    }
 
     await db.updateSkill(params['id']!, fields as Partial<Omit<SkillRow, 'id' | 'created_at' | 'updated_at'>>);
     const skill = await db.getSkill(params['id']!);
