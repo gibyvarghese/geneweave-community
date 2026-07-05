@@ -18,6 +18,7 @@ import {
   registerMCPGatewayClientRoutes,
   registerMCPGatewayActivityRoutes,
   registerSkillRoutes,
+  registerSkillGovernanceRoutes,
   registerWorkerAgentRoutes,
   registerSupervisorAgentRoutes,
   registerToolApprovalRequestRoutes,
@@ -132,6 +133,7 @@ export function registerAdminRoutingRoutes(
   registerMCPGatewayClientRoutes(router, db, adminHelpers);
   registerMCPGatewayActivityRoutes(router, db, adminHelpers);
   registerSkillRoutes(router, db, adminHelpers);
+  registerSkillGovernanceRoutes(router, db, adminHelpers);
   registerWorkerAgentRoutes(router, db, adminHelpers);
   registerSupervisorAgentRoutes(router, db, adminHelpers);
   registerToolApprovalRequestRoutes(router, db, adminHelpers);
