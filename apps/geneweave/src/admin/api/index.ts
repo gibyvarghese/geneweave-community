@@ -21,6 +21,7 @@ export { registerToolSimulationRoutes } from './tool-simulation.js';
 export { registerMCPGatewayClientRoutes } from './mcp-gateway-clients.js';
 export { registerMCPGatewayActivityRoutes } from './mcp-gateway-activity.js';
 export { registerSkillRoutes } from './skills.js';
+export { registerSkillGovernanceRoutes } from './skill-governance.js';
 export { registerWorkerAgentRoutes } from './worker-agents.js';
 export { registerSupervisorAgentRoutes } from './agents.js';
 export { registerToolApprovalRequestRoutes } from './tool-approval-requests.js';

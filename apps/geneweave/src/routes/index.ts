@@ -35,3 +35,4 @@ export { registerVoiceRoutes } from './voice.js';
 export { registerArtifactRoutes } from './artifacts.js';
 export { registerShareRoutes } from './share.js';
 export { registerRunShareRoutes } from './run-share.js';
+export { registerSkillsMcpRoutes } from './skills-mcp.js';

@@ -78,6 +78,7 @@ import {
   registerMeAccessibilityRoutes,
   registerMeWorkspaceRoutes,
   registerMeNotesRoutes,
+  registerSkillsMcpRoutes,
   registerMeComplianceRoutes,
   registerVoiceRoutes,
   registerArtifactRoutes,
@@ -349,6 +350,7 @@ export function createGeneWeaveServer(config: ServerConfig): Server {
       }
     },
   });
+  registerSkillsMcpRoutes(router, db);
   registerMeComplianceRoutes(router, db, config.runtime);
   registerArtifactRoutes(router, db, { jwtSecret, publicBaseUrl });
   registerShareRoutes(router, db, { jwtSecret });
