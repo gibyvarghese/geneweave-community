@@ -464,6 +464,11 @@ describe('Email verification — token attack vectors', () => {
 // This tests the C-7 / BYOK production envelope (RSA-OAEP import ceremony).
 
 describe('BYOK import session — replay, expiry, and ciphertext attacks', () => {
+  // Each createByokImportSession() generates a fresh RSA-4096 key pair — synchronous, ~200-400ms but
+  // highly variable, and some cases generate two. Under CI CPU contention that can exceed vitest's 5s
+  // default and flake (a different test times out each run). Give the keygen cases a generous timeout.
+  const RSA_KEYGEN_TIMEOUT_MS = 30_000;
+
   it('a consumed import session cannot be replayed (single-use)', async () => {
     const session = createByokImportSession();
 
@@ -482,7 +487,7 @@ describe('BYOK import session — replay, expiry, and ciphertext attacks', () =>
     // Replay: session already deleted
     const result2 = consumeByokImportSession(session.sessionId, ciphertext);
     expect(result2).toBeNull();
-  });
+  }, RSA_KEYGEN_TIMEOUT_MS);
 
   it('fabricated session IDs return null (no session enumeration)', () => {
     const fakeId = randomUUID();
@@ -498,7 +503,7 @@ describe('BYOK import session — replay, expiry, and ciphertext attacks', () =>
     // Session is deleted even on failure — no retry is possible
     const retry = consumeByokImportSession(session.sessionId, garbageB64);
     expect(retry).toBeNull();
-  });
+  }, RSA_KEYGEN_TIMEOUT_MS);
 
   it('ciphertext encrypted with a different key is rejected', () => {
     const sessionA = createByokImportSession();
@@ -514,7 +519,7 @@ describe('BYOK import session — replay, expiry, and ciphertext attacks', () =>
     // Attempt to decrypt with session A's private key — should fail
     const result = consumeByokImportSession(sessionA.sessionId, wrongCiphertext);
     expect(result).toBeNull();
-  });
+  }, RSA_KEYGEN_TIMEOUT_MS);
 
   it('empty or trivially short ciphertext returns null without exposing session', () => {
     const session = createByokImportSession();
@@ -522,7 +527,7 @@ describe('BYOK import session — replay, expiry, and ciphertext attacks', () =>
     // Session is gone — a second attempt with valid ciphertext would also fail
     const s2 = createByokImportSession();
     expect(consumeByokImportSession(s2.sessionId, 'AA==')).toBeNull();
-  });
+  }, RSA_KEYGEN_TIMEOUT_MS);
 });
 
 // ── 7. JWT Confusion Attacks ─────────────────────────────────────────────────
