@@ -26,6 +26,9 @@ import { pgUserStore } from './db-postgres/users.js';
 import { pgChatStore } from './db-postgres/chats.js';
 import { pgAdminStore } from './db-postgres/admin.js';
 import { pgMeStore } from './db-postgres/me.js';
+// Methods declared inline on DatabaseAdapter (outside the domain sub-interfaces): scheduled
+// note-agents, per-user MCP tokens, artifacts, and live-artifact configs.
+import { pgInlineAdapterStore } from './db-postgres/inline-adapter.js';
 
 export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
   return {
@@ -49,5 +52,6 @@ export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
     ...pgChatStore(ctx),
     ...pgAdminStore(ctx),
     ...pgMeStore(ctx),
+    ...pgInlineAdapterStore(ctx),
   };
 }
