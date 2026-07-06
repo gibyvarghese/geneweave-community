@@ -26,7 +26,11 @@ const NOW_MS_TEXT = `to_char((now() at time zone 'utc'), 'YYYY-MM-DD"T"HH24:MI:S
 
 function mapType(sqliteType: string): string {
   const t = (sqliteType || '').toUpperCase();
-  if (t.includes('INT')) return 'INTEGER';
+  // SQLite INTEGER is 64-bit and freely stores epoch-millis / large counts, so it must map to
+  // Postgres BIGINT (int4 would overflow at ~2.1e9). The adapter registers an int8→Number parser
+  // (db-postgres-pgtypes.ts) so these still read back as JS numbers — parity with SQLite — since
+  // every value we store is well below 2^53.
+  if (t.includes('INT')) return 'BIGINT';
   if (t.includes('REAL') || t.includes('FLOA') || t.includes('DOUB')) return 'DOUBLE PRECISION';
   if (t.includes('BLOB')) return 'BYTEA';
   if (t.includes('NUMERIC') || t.includes('DECIMAL')) return 'NUMERIC';

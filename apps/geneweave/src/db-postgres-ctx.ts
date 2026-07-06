@@ -6,6 +6,10 @@
  * avoids an import cycle between db-postgres.ts and the domain modules.
  */
 
+// Install the BIGINT→number parser (see db-postgres-pgtypes.ts) as a side effect. Imported here so
+// every domain module and every parity test picks it up transitively.
+import './db-postgres-pgtypes.js';
+
 /** The minimal Postgres surface a domain store needs. `pg.Pool`/`pg.Client` satisfy the query shape. */
 export interface PgCtx {
   query(text: string, params?: readonly unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;

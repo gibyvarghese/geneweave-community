@@ -14,6 +14,12 @@ import { pgVoiceStore } from './db-postgres/voice.js';
 import { pgWorkflowStore } from './db-postgres/workflows.js';
 import { pgScopesStore } from './db-postgres/scopes.js';
 import { pgAgentStore } from './db-postgres/agents.js';
+import { pgPromptStore } from './db-postgres/prompts.js';
+import { pgToolStore } from './db-postgres/tools.js';
+import { pgRoutingStore } from './db-postgres/routing.js';
+import { pgMemoryStore } from './db-postgres/memory.js';
+import { pgEncryptionStore } from './db-postgres/encryption.js';
+import { pgAgendaNotesStore } from './db-postgres/agenda-notes.js';
 
 export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
   return {
@@ -23,5 +29,11 @@ export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
     ...pgWorkflowStore(ctx),
     ...pgScopesStore(ctx),
     ...pgAgentStore(ctx),
+    ...pgPromptStore(ctx),
+    ...pgToolStore(ctx),
+    ...pgRoutingStore(ctx),
+    ...pgMemoryStore(ctx),
+    ...pgEncryptionStore(ctx),
+    ...pgAgendaNotesStore(ctx),
   };
 }
