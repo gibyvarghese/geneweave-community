@@ -20,6 +20,10 @@ import { pgRoutingStore } from './db-postgres/routing.js';
 import { pgMemoryStore } from './db-postgres/memory.js';
 import { pgEncryptionStore } from './db-postgres/encryption.js';
 import { pgAgendaNotesStore } from './db-postgres/agenda-notes.js';
+import { pgKaggleStore } from './db-postgres/kaggle.js';
+import { pgLiveAgentsStore } from './db-postgres/live-agents.js';
+import { pgUserStore } from './db-postgres/users.js';
+import { pgChatStore } from './db-postgres/chats.js';
 
 export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
   return {
@@ -35,5 +39,11 @@ export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
     ...pgMemoryStore(ctx),
     ...pgEncryptionStore(ctx),
     ...pgAgendaNotesStore(ctx),
+    ...pgKaggleStore(ctx),
+    ...pgLiveAgentsStore(ctx),
+    // pgUserStore + pgChatStore implement the FULL user/chat interfaces and supersede the inline
+    // chat/skills slice methods on the core (Object.assign overrides them with these module versions).
+    ...pgUserStore(ctx),
+    ...pgChatStore(ctx),
   };
 }
