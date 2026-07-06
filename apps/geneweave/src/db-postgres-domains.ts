@@ -29,6 +29,8 @@ import { pgMeStore } from './db-postgres/me.js';
 // Methods declared inline on DatabaseAdapter (outside the domain sub-interfaces): scheduled
 // note-agents, per-user MCP tokens, artifacts, and live-artifact configs.
 import { pgInlineAdapterStore } from './db-postgres/inline-adapter.js';
+// First-run default-data seeder (calls the domain seeders above through the composed adapter).
+import { pgSeedStore } from './db-postgres/seed.js';
 
 export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
   return {
@@ -53,5 +55,6 @@ export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
     ...pgAdminStore(ctx),
     ...pgMeStore(ctx),
     ...pgInlineAdapterStore(ctx),
+    ...pgSeedStore(ctx),
   };
 }
