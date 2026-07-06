@@ -178,8 +178,9 @@ Postgres instance and a real-LLM round-trip — and checks the results match.
 **What runs on Postgres today.** On Postgres, geneWeave creates the **entire** database schema (all
 tables, generated from the SQLite schema and validated against real Postgres). Areas implemented at full
 parity with SQLite: chat & skills (`users`, `chats`, `messages`, `skills`), plus `cost`, `capabilities`,
-`voice`, `workflows`, `scopes`, `agents`, `prompts`, `tools`, `routing`, `memory`, `encryption`, and
-`agenda/notes`. Areas not yet ported raise a clear error the instant they're
+`voice`, `workflows`, `scopes`, `agents`, `prompts`, `tools`, `routing`, `memory`, `encryption`,
+`agenda/notes`, `kaggle`, and `live-agents` — with only the admin console and current-user (`me`) areas
+still in progress. Areas not yet ported raise a clear error the instant they're
 used (never a silent wrong answer), so it's always obvious what's ready. For complete coverage today, stay
 on SQLite; the rest lands incrementally. With the `pgvector` extension, embeddings can live in the same
 Postgres as everything else — no separate vector database.
