@@ -104,14 +104,17 @@ describe('Cache Phase 1 — streaming cache (mock model)', () => {
 
     const first = await runStream(deps, chatId, 'Reply with exactly: STREAMPONG');
     expect(first.done?.cached ?? false).toBe(false);
-    expect(first.texts.join('')).toContain('STREAMPONG');
+    // A real model answer. Its exact position in the mock's response list depends on how many
+    // auxiliary LLM calls the cold path makes first (memory extraction, …), so we assert it's one
+    // of the model's answers rather than pinning a position.
+    const firstText = first.texts.join('');
+    expect(firstText).toMatch(/STREAMPONG|SECOND_DIFFERENT_ANSWER/);
 
     const second = await runStream(deps, chatId, 'Reply with exactly: STREAMPONG');
     expect(second.done?.cached).toBe(true);
-    // The cache replayed the FIRST answer — the mock's response index did not
-    // advance to 'SECOND_DIFFERENT_ANSWER', proving the model was not called.
-    expect(second.texts.join('')).toContain('STREAMPONG');
-    expect(second.texts.join('')).not.toContain('SECOND_DIFFERENT_ANSWER');
+    // The cache replayed the FIRST answer verbatim — exact-equality proves the model was NOT called
+    // again (a fresh call would have advanced the cycling mock to a different response).
+    expect(second.texts.join('')).toBe(firstText);
   });
 
   it('does not cache a response that leaks a secret (output-side bypass)', async () => {

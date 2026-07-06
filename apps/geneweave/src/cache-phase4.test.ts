@@ -131,17 +131,21 @@ describe('Cache Phase 4 — streaming semantic cache (deterministic embedding)',
     const semanticCache = weaveSemanticCache({ embed: async (t: string) => bowEmbed(t), defaultThreshold: 0.6 });
     const deps = makeDeps(semanticCache, modelId);
 
-    // Cold miss → LLM → stored semantically.
+    // Cold miss → LLM → answer streamed and stored semantically.
     const first = await run(deps, `c-${modelId}`, userId, 'What is the capital of France?');
     expect(first.done?.semantic ?? false).toBe(false);
-    expect(first.text).toContain('ANSWER_FOR_FIRST');
+    // A real model answer. Its exact position in the mock's response list depends on how many
+    // auxiliary LLM calls the cold path makes first (skill selection, memory extraction, …), so we
+    // assert it's one of the model's answers rather than pinning a position.
+    expect(first.text).toMatch(/ANSWER_FOR_(FIRST|SECOND)/);
 
-    // Paraphrase → semantic HIT → replays the FIRST answer (model not called).
+    // Paraphrase → semantic HIT → replays the SAME stored answer WITHOUT calling the model again.
+    // Exact-equality is the robust proof of "no fresh generation": had the model been called, the
+    // cycling mock would have returned a different response.
     const second = await run(deps, `c-${modelId}`, userId, 'Tell me the capital city of France');
     expect(second.done?.semantic).toBe(true);
     expect(second.done?.cached).toBe(true);
-    expect(second.text).toContain('ANSWER_FOR_FIRST');
-    expect(second.text).not.toContain('ANSWER_FOR_SECOND');
+    expect(second.text).toBe(first.text);
   });
 
   it('does NOT serve one user\'s cached answer to a different user (scope isolation)', async () => {
@@ -158,10 +162,11 @@ describe('Cache Phase 4 — streaming semantic cache (deterministic embedding)',
     depsB.getAvailableModels = async () => [{ id: modelId + '-B', provider: 'mock' }];
 
     // User A caches an answer for the query.
-    await run(depsA, 'c-iso-A', 'u-iso-A', 'What is the capital of France?');
+    const resA = await run(depsA, 'c-iso-A', 'u-iso-A', 'What is the capital of France?');
+    expect(resA.done?.semantic ?? false).toBe(false);
     // User B asks the SAME query — must NOT get a semantic hit from A's entry.
     const resB = await run(depsB, 'c-iso-B', 'u-iso-B', 'What is the capital of France?');
-    expect(resB.done?.semantic ?? false).toBe(false); // isolation: no cross-user hit
-    expect(resB.text).toContain('ANSWER_FOR_FIRST');   // B's OWN fresh model response
+    expect(resB.done?.semantic ?? false).toBe(false); // the key isolation guarantee: no cross-user hit
+    expect(resB.text).toMatch(/ANSWER_FOR_(FIRST|SECOND)/); // B produced its OWN fresh model answer
   });
 });
