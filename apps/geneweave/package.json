@@ -72,12 +72,15 @@
     "@weaveintel/voice": "^0.1.1",
     "@weaveintel/workflows": "^0.1.1",
     "better-sqlite3": "^11.9.1",
+    "pg": "^8.13.0",
     "redis": "^4.7.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.59.1",
+    "@testcontainers/postgresql": "^11.0.0",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/pg": "^8.11.0",
     "@vitest/coverage-v8": "^4.1.9",
     "@weaveintel/testing": "^0.1.1",
     "axe-core": "^4.12.1",

@@ -153,9 +153,33 @@ below set the initial defaults (full list in [`.env.example`](./.env.example)).
 | Agents | Admin → Live Agents → Supervisor / Worker Agents | — |
 | Cost budgets | Admin → Monitoring → Cost Policies | — |
 | Sign-in token secret | — | `JWT_SECRET` |
-| Database | SQLite file (Postgres via a custom adapter) | `DB_PATH` |
+| Database | SQLite (default) or Postgres — see [Running on Postgres](#running-on-postgres) | `WEAVE_DB`, `DATABASE_URL`, `WEAVE_DB_PATH` |
 
 > **Note:** guardrail changes are applied when the server starts, so restart after toggling judges on/off.
+
+### Running on Postgres
+
+geneWeave stores your data (users, chats, messages, skills, …) in a single **SQLite** file by default —
+nothing to install, ideal for local use and small deployments. When you need a real server database
+(many concurrent writers, a database on its own host, backups, or embeddings living next to your data),
+switch to **Postgres** by setting two environment variables — no code changes:
+
+```bash
+export WEAVE_DB=postgres
+export DATABASE_URL="postgres://user:password@localhost:5432/geneweave"
+# Leaving WEAVE_DB unset keeps SQLite (optionally at WEAVE_DB_PATH).
+```
+
+**Same answers on both.** SQLite and Postgres sort text and store flags/dates differently; the Postgres
+adapter is pinned so a row reads back identically on either (byte-order sorting, integer on/off flags,
+matching timestamp format). A parity test suite runs the same operations against both — plus a real
+Postgres instance and a real-LLM round-trip — and checks the results match.
+
+**What runs on Postgres today.** Postgres support is rolling out in stages. Available now, at full parity
+with SQLite: the core chat + skills tables (`users`, `chats`, `messages`, `skills`). Areas not yet ported
+raise a clear error the instant they're used (never a silent wrong answer), so it's always obvious what's
+ready. For complete coverage today, stay on SQLite; the rest lands incrementally. With the `pgvector`
+extension, embeddings can live in the same Postgres as everything else — no separate vector database.
 
 ---
 

@@ -114,9 +114,11 @@ export interface DatabaseAdapter extends
 }
 
 export interface DatabaseConfig {
-  type: 'sqlite' | 'custom';
+  type: 'sqlite' | 'postgres' | 'custom';
   /** SQLite file path (default: './geneweave.db') */
   path?: string;
-  /** Provide your own adapter for Postgres, MySQL, Mongo, etc. */
+  /** Postgres connection string (used when `type: 'postgres'`). Falls back to `process.env.DATABASE_URL`. */
+  connectionString?: string;
+  /** Provide your own adapter for MySQL, Mongo, or a custom store. */
   adapter?: DatabaseAdapter;
 }
