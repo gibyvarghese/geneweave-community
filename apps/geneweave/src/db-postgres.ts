@@ -35,6 +35,9 @@
 import type { DatabaseAdapter } from './db-types/adapter.js';
 import type { UserRow, ChatRow, MessageRow } from './db-types/core.js';
 import type { SkillRow } from './db-types/tools.js';
+import { POSTGRES_FULL_SCHEMA } from './db-postgres-schema.js';
+import { NOW_SQL, type PgCtx } from './db-postgres-ctx.js';
+import { composeDomainStores } from './db-postgres-domains.js';
 
 /**
  * The tiny slice of a Postgres client this adapter needs. A `pg.Pool`, a `pg.Client`, a pooled
@@ -55,75 +58,8 @@ export interface PostgresAdapterOptions {
 }
 
 /** SQLite's `datetime('now')` in Postgres terms: UTC, `YYYY-MM-DD HH:MM:SS`, second precision. */
-const NOW_TEXT = `to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS')`;
+const NOW_TEXT = NOW_SQL;
 
-/**
- * The schema for the ported slice. Types are chosen to return the *same JS values* as SQLite:
- *  • booleans → INTEGER (0/1)          • counts/priority → INTEGER (JS number, not bigint-string)
- *  • cost → DOUBLE PRECISION (number)  • timestamps → TEXT in SQLite's format
- * `IF NOT EXISTS` everywhere, so `initialize()` is safe to call repeatedly.
- */
-export const POSTGRES_SLICE_SCHEMA = `
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL,
-  persona TEXT NOT NULL DEFAULT 'tenant_user',
-  tenant_id TEXT,
-  password_hash TEXT NOT NULL,
-  email_verified INTEGER NOT NULL DEFAULT 0,
-  email_verified_at TEXT,
-  email_bidx TEXT,
-  mfa_enabled INTEGER NOT NULL DEFAULT 0,
-  mfa_totp_secret TEXT,
-  created_at TEXT NOT NULL DEFAULT ${NOW_TEXT}
-);
-
-CREATE TABLE IF NOT EXISTS chats (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  title TEXT NOT NULL DEFAULT 'New Chat',
-  model TEXT NOT NULL DEFAULT '',
-  provider TEXT NOT NULL DEFAULT '',
-  pinned INTEGER NOT NULL DEFAULT 0,
-  archived INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT ${NOW_TEXT},
-  updated_at TEXT NOT NULL DEFAULT ${NOW_TEXT}
-);
-
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  metadata TEXT,
-  tokens_used INTEGER NOT NULL DEFAULT 0,
-  cost DOUBLE PRECISION NOT NULL DEFAULT 0,
-  latency_ms INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT ${NOW_TEXT}
-);
-
-CREATE TABLE IF NOT EXISTS skills (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
-  category TEXT NOT NULL DEFAULT 'general',
-  trigger_patterns TEXT NOT NULL DEFAULT '[]',
-  instructions TEXT NOT NULL DEFAULT '',
-  tool_names TEXT,
-  examples TEXT,
-  tags TEXT,
-  priority INTEGER NOT NULL DEFAULT 0,
-  version TEXT NOT NULL DEFAULT '1.0',
-  tool_policy_key TEXT,
-  supervisor_agent_id TEXT,
-  domain_sections TEXT,
-  execution_contract TEXT,
-  enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT ${NOW_TEXT},
-  updated_at TEXT NOT NULL DEFAULT ${NOW_TEXT}
-);
-`;
 
 /** The method names this adapter actually implements — the honest, testable Phase-1 surface. */
 export const POSTGRES_IMPLEMENTED_METHODS: readonly string[] = [
@@ -149,6 +85,11 @@ class PostgresCore {
     return this.sql;
   }
 
+  /** The context handed to each per-domain store. `query` resolves lazily, after initialize(). */
+  pgCtx(): PgCtx {
+    return { query: (text, params) => this.db().query(text, params), now: NOW_TEXT };
+  }
+
   async initialize(): Promise<void> {
     if (!this.sql) {
       if (this.opts.client) {
@@ -166,7 +107,7 @@ class PostgresCore {
         this.ownsClient = true;
       }
     }
-    await this.sql.query(POSTGRES_SLICE_SCHEMA);
+    await this.sql.query(POSTGRES_FULL_SCHEMA);
   }
 
   async close(): Promise<void> {
@@ -276,10 +217,11 @@ export function withPostgresBoundary(core: PostgresCore): DatabaseAdapter {
       return async (..._args: unknown[]) => {
         throw new Error(
           `PostgresAdapter: "${prop}()" is not implemented yet.\n` +
-          `Phase 1 covers the core chat + skills slice — users, chats, messages, skills — at full ` +
-          `parity with SQLite. The remaining domains are ported incrementally (see ` +
-          `PERSISTENCE_ARCHITECTURE_REVIEW_2026.md). For complete coverage today, run on SQLite ` +
-          `(the default) or contribute the "${prop}" method to db-postgres.ts.`,
+          `The Postgres adapter creates the FULL app schema and implements a growing set of domains at ` +
+          `parity with SQLite — currently: chat + skills (users, chats, messages, skills), cost, ` +
+          `capabilities, voice, workflows, scopes, and agents. The remaining domains are ported ` +
+          `incrementally (see PERSISTENCE_ARCHITECTURE_REVIEW_2026.md). For complete coverage today, run ` +
+          `on SQLite (the default) or add "${prop}" to the relevant src/db-postgres/<domain>.ts module.`,
         );
       };
     },
@@ -300,5 +242,9 @@ export function withPostgresBoundary(core: PostgresCore): DatabaseAdapter {
  * ```
  */
 export function createPostgresAdapter(opts: PostgresAdapterOptions): DatabaseAdapter {
-  return withPostgresBoundary(new PostgresCore(opts));
+  const core = new PostgresCore(opts);
+  // Layer the per-domain stores on top of the core (lifecycle + chat/skills slice). Each domain's
+  // methods are added as own-properties; anything still unported is handled by the boundary Proxy.
+  Object.assign(core, composeDomainStores(core.pgCtx()));
+  return withPostgresBoundary(core);
 }
