@@ -18,12 +18,13 @@ const TABLE_COUNT = (POSTGRES_FULL_SCHEMA.match(/CREATE TABLE/g) ?? []).length;
 describe('Postgres full schema (generated)', () => {
   it('hermetic: covers the whole app and keeps SQLite-parity column types', () => {
     expect(TABLE_COUNT).toBeGreaterThan(200);
-    // On/off flags are INTEGER (0/1), never BOOLEAN, so rows read back identically to SQLite.
-    expect(POSTGRES_FULL_SCHEMA).toMatch(/"email_verified" INTEGER NOT NULL DEFAULT 0/);
+    // On/off flags map to BIGINT (SQLite's 64-bit INTEGER), never BOOLEAN — and an int8→number parser
+    // (db-postgres-pgtypes.ts) makes them read back as 0/1 numbers, identical to SQLite.
+    expect(POSTGRES_FULL_SCHEMA).toMatch(/"email_verified" BIGINT NOT NULL DEFAULT 0/);
     expect(POSTGRES_FULL_SCHEMA).not.toMatch(/\bBOOLEAN\b/);
     // Timestamps stay TEXT in SQLite's datetime('now') format.
     expect(POSTGRES_FULL_SCHEMA).toMatch(/"created_at" TEXT NOT NULL DEFAULT to_char\(\(now\(\) at time zone 'utc'\), 'YYYY-MM-DD HH24:MI:SS'\)/);
-    // Money stays double precision (JS number), counts stay integer.
+    // Money stays double precision (JS number); counts are BIGINT (64-bit, parsed back to number).
     expect(POSTGRES_FULL_SCHEMA).toMatch(/"cost" DOUBLE PRECISION/);
     // No untranslated SQLite date functions leaked into the DDL.
     expect(POSTGRES_FULL_SCHEMA).not.toMatch(/datetime\('now'\)|strftime\(|unixepoch\(|randomblob/);

@@ -102,7 +102,8 @@ describe('Phase 1 — env switch + boundary (hermetic)', () => {
   it('boundary: a not-yet-ported method throws a clear, actionable error', async () => {
     const db = createPostgresAdapter({ connectionString: 'postgres://unused' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await expect((db as any).listPrompts()).rejects.toThrow(/not implemented yet[\s\S]*users, chats, messages, skills/);
+    // Use a domain not yet ported (kaggle) so this exercises the boundary; update if it gets ported.
+    await expect((db as any).getBudgetEnvelope('x', 'y')).rejects.toThrow(/not implemented yet[\s\S]*users, chats, messages, skills/);
   });
 
   it('boundary: implemented methods refuse to run before initialize()', async () => {

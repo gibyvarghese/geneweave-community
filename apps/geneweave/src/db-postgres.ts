@@ -219,7 +219,8 @@ export function withPostgresBoundary(core: PostgresCore): DatabaseAdapter {
           `PostgresAdapter: "${prop}()" is not implemented yet.\n` +
           `The Postgres adapter creates the FULL app schema and implements a growing set of domains at ` +
           `parity with SQLite — currently: chat + skills (users, chats, messages, skills), cost, ` +
-          `capabilities, voice, workflows, scopes, and agents. The remaining domains are ported ` +
+          `capabilities, voice, workflows, scopes, agents, prompts, tools, routing, memory, encryption, ` +
+          `and agenda/notes. The remaining domains are ported ` +
           `incrementally (see PERSISTENCE_ARCHITECTURE_REVIEW_2026.md). For complete coverage today, run ` +
           `on SQLite (the default) or add "${prop}" to the relevant src/db-postgres/<domain>.ts module.`,
         );
