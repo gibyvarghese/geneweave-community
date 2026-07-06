@@ -217,12 +217,12 @@ export function withPostgresBoundary(core: PostgresCore): DatabaseAdapter {
       return async (..._args: unknown[]) => {
         throw new Error(
           `PostgresAdapter: "${prop}()" is not implemented yet.\n` +
-          `The Postgres adapter creates the FULL app schema and implements almost every domain at parity ` +
-          `with SQLite — users, chats, messages, skills, cost, capabilities, voice, workflows, scopes, ` +
-          `agents, prompts, tools, routing, memory, encryption, agenda/notes, kaggle, and live-agents. ` +
-          `Only the admin and "me" (current-user context) domains are still being ported (see ` +
-          `PERSISTENCE_ARCHITECTURE_REVIEW_2026.md). For complete coverage today, run on SQLite (the ` +
-          `default) or add "${prop}" to the relevant src/db-postgres/<domain>.ts module.`,
+          `The Postgres adapter creates the FULL app schema and implements every DatabaseAdapter domain ` +
+          `at parity with SQLite (users, chats, messages, skills, cost, capabilities, voice, workflows, ` +
+          `scopes, agents, prompts, tools, routing, memory, encryption, agenda/notes, kaggle, ` +
+          `live-agents, admin, and me). The only method still SQLite-only is the seedDefaultData ` +
+          `bootstrap seeder (see PERSISTENCE_ARCHITECTURE_REVIEW_2026.md). If you hit this for "${prop}", ` +
+          `seed defaults on SQLite (or port seedDefaultData / add "${prop}" to src/db-postgres/<domain>.ts).`,
         );
       };
     },

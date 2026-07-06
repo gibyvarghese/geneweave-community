@@ -24,6 +24,8 @@ import { pgKaggleStore } from './db-postgres/kaggle.js';
 import { pgLiveAgentsStore } from './db-postgres/live-agents.js';
 import { pgUserStore } from './db-postgres/users.js';
 import { pgChatStore } from './db-postgres/chats.js';
+import { pgAdminStore } from './db-postgres/admin.js';
+import { pgMeStore } from './db-postgres/me.js';
 
 export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
   return {
@@ -45,5 +47,7 @@ export function composeDomainStores(ctx: PgCtx): Partial<DatabaseAdapter> {
     // chat/skills slice methods on the core (Object.assign overrides them with these module versions).
     ...pgUserStore(ctx),
     ...pgChatStore(ctx),
+    ...pgAdminStore(ctx),
+    ...pgMeStore(ctx),
   };
 }
