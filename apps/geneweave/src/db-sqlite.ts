@@ -11069,7 +11069,31 @@ export async function createDatabaseAdapter(config: DatabaseConfig): Promise<Dat
     await config.adapter.initialize();
     return config.adapter;
   }
+  if (config.type === 'postgres') {
+    // Lazy-import so `pg` is only loaded when Postgres is actually chosen.
+    const { createPostgresAdapter } = await import('./db-postgres.js');
+    const adapter = createPostgresAdapter({ connectionString: config.connectionString ?? process.env['DATABASE_URL'] });
+    await adapter.initialize();
+    return adapter;
+  }
   const adapter = new SQLiteAdapter(config.path ?? './geneweave.db');
   await adapter.initialize();
   return adapter;
+}
+
+/**
+ * Pick a database backend from environment variables, so an operator can switch from SQLite to
+ * Postgres without touching code:
+ *
+ *   • `WEAVE_DB=postgres` + `DATABASE_URL=postgres://…`  → Postgres
+ *   • anything else (the default)                        → SQLite at `WEAVE_DB_PATH` or ./geneweave.db
+ *
+ * SQLite stays the zero-config default; Postgres is strictly opt-in.
+ */
+export function resolveDatabaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DatabaseConfig {
+  if ((env['WEAVE_DB'] ?? '').toLowerCase() === 'postgres') {
+    if (!env['DATABASE_URL']) throw new Error('WEAVE_DB=postgres requires DATABASE_URL to be set (e.g. postgres://user:pass@host:5432/db)');
+    return { type: 'postgres', connectionString: env['DATABASE_URL'] };
+  }
+  return { type: 'sqlite', path: env['WEAVE_DB_PATH'] ?? './geneweave.db' };
 }

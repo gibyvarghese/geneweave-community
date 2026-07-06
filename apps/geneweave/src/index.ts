@@ -33,7 +33,7 @@ const log = createLogger('geneweave');
 import { weaveConsoleTracer, createOtelTracer } from '@weaveintel/observability';
 import { weaveSqlitePersistence } from '@weaveintel/persistence';
 import { weaveRedactor } from '@weaveintel/guardrails/redaction';
-import { createDatabaseAdapter, type DatabaseAdapter, type DatabaseConfig } from './db.js';
+import { createDatabaseAdapter, resolveDatabaseConfigFromEnv, type DatabaseAdapter, type DatabaseConfig } from './db.js';
 import { ChatEngine, type ProviderConfig } from './chat.js';
 import { createGeneWeaveServer } from './server.js';
 import { syncModelPricing, type PricingSyncReport } from './pricing-sync.js';
@@ -280,7 +280,7 @@ export async function createGeneWeave(config: GeneWeaveConfig): Promise<GeneWeav
   // rows from the `guardrails` table on each call, so operator edits
   // take effect without restart. Encryption wrapper still uses the
   // module-level live binding (assigned later in this function).
-  const rawDb = await createDatabaseAdapter(config.database ?? { type: 'sqlite', path: './geneweave.db' }).catch(rollback);
+  const rawDb = await createDatabaseAdapter(config.database ?? resolveDatabaseConfigFromEnv()).catch(rollback);
   const db = withTenantEncryptedMessages(rawDb, () => geneweaveEncryptionManager);
 
   // Resolve the guardrail judge model once at boot. Uses a cheap/fast model

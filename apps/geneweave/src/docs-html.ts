@@ -4083,6 +4083,49 @@ const engine = new DefaultWorkflowEngine({
   stepLockStore:   weaveSqliteStepLockStore({ databasePath }),
   idempotencyStore: weaveSqliteIdempotencyStore({ databasePath }),
 });`, ['@weaveintel/workflows'])}
+`)}
+
+${section('pers-app-postgres', 'Running geneWeave on Postgres (the app database)', `
+<p>Everything above is about the <em>runtime’s own</em> bookkeeping. This section is about the bigger question: <strong>where does geneWeave keep <u>your</u> data</strong> — the users, chats, messages, and skills?</p>
+
+<p>Out of the box that’s a single <strong>SQLite</strong> file (<code>geneweave.db</code>). Nothing to install, perfect for local development, the desktop app, and small single-node deployments. When a team outgrows that — many people writing at once, a database on its own server, real backups, or keeping AI embeddings right next to the rest of the data — the same app can run on <strong>Postgres</strong> instead. You don’t change any code; you set two environment variables.</p>
+
+${code('bash', `# Switch geneWeave's database from SQLite to Postgres — no code changes.
+export WEAVE_DB=postgres
+export DATABASE_URL="postgres://user:password@localhost:5432/geneweave"
+
+# Anything else (the default) stays on SQLite:
+#   (unset)                      -> ./geneweave.db
+#   WEAVE_DB_PATH=/data/gw.db    -> that file`)}
+
+${params([
+  ['WEAVE_DB', 'string', 'optional', 'Set to <code>"postgres"</code> to use Postgres. Any other value (or unset) means SQLite — the default.'],
+  ['DATABASE_URL', 'string', 'required for Postgres', 'Standard Postgres connection string. Required when <code>WEAVE_DB=postgres</code>.'],
+  ['WEAVE_DB_PATH', 'string', 'optional', 'SQLite file path when staying on SQLite. Default <code>./geneweave.db</code>.'],
+])}
+
+<p>Under the hood, geneWeave picks the backend at startup (<code>resolveDatabaseConfigFromEnv()</code>) and builds the matching adapter. If you embed geneWeave as a library you can also pass it explicitly:</p>
+
+${code('typescript', `import { createDatabaseAdapter } from '@weaveintel/geneweave';
+
+// Explicit Postgres:
+const db = await createDatabaseAdapter({
+  type: 'postgres',
+  connectionString: process.env.DATABASE_URL,
+});
+
+// Or bring your own already-open client (a pg.Pool, a serverless driver, etc.):
+import { createPostgresAdapter } from '@weaveintel/geneweave';
+import pg from 'pg';
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const db2 = createPostgresAdapter({ client: pool });
+await db2.initialize();`, ['@weaveintel/geneweave', 'pg'])}
+
+${callout('tip', '🎯', 'Same answers on both databases.', 'SQLite and Postgres sort text differently and store booleans and dates differently — left unchecked, the same query returns different results on each. The Postgres adapter is pinned so that a row read from Postgres is <strong>identical</strong> to the same row read from SQLite (byte-order sorting via <code>COLLATE "C"</code>, integers for on/off flags, text timestamps in the same format). This is verified by a parity test suite that runs the very same operations against both and checks the results match, plus a real Postgres instance in CI.')}
+
+${callout('warn', '🧭', 'What runs on Postgres today.', 'geneWeave’s full data layer is large (18 areas, dozens of tables). Postgres support is being rolled out in stages. <strong>Available now, at full parity with SQLite:</strong> the core chat + skills tables — <code>users</code>, <code>chats</code>, <code>messages</code>, and <code>skills</code>. Areas not yet ported raise a clear, self-explaining error the moment they’re called (never a silent wrong answer), so it’s always obvious what’s ready. For complete coverage today, stay on SQLite (the default); the remaining areas land incrementally.')}
+
+<p><strong>Why Postgres for the AI parts?</strong> With the <code>pgvector</code> extension, your embeddings live in the <em>same</em> database as everything else — no separate vector database to run, back up, or keep in sync. That “one store for relational data and embeddings” design is the recommended production shape.</p>
 `)}`;
 }
 
@@ -6741,6 +6784,7 @@ var SEARCH_IDX = [
   {s:'persistence', t:'RuntimePersistenceSlot',         k:'persistence slot sqlite kv runtime weavesqlitepersistence', sub:'pers-slot'},
   {s:'persistence', t:'Direct KV Access',               k:'kv key value get set delete list prefix persistence', sub:'pers-kv'},
   {s:'persistence', t:'Workflow Store Adapters',        k:'workflow checkpoint run repository sqlite postgres adapter', sub:'pers-adapters'},
+  {s:'persistence', t:'Running geneWeave on Postgres',  k:'postgres database url weave_db app adapter switch sqlite migrate connection string pgvector parity', sub:'pers-app-postgres'},
   // Encryption
   {s:'encryption',  t:'Per-Tenant Field Encryption',    k:'encryption aes-256-gcm tenant field column key rotation', sub:'enc-setup'},
   {s:'encryption',  t:'Encrypted DB Proxy',             k:'proxy db column transparent encrypt decrypt', sub:'enc-proxy'},
