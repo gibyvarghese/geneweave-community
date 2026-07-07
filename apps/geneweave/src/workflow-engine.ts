@@ -369,9 +369,13 @@ export function createGeneweaveWorkflowEngine(opts: {
   // Phase W2: share the geneweave SQLite connection so the idempotency
   // table lives in the same DB file as the rest of workflow state.
   // The workflows package creates `wf_idempotency` on first use.
-  const rawSqlite = (opts.db as unknown as { d?: unknown }).d;
+  // On Postgres there is no better-sqlite3 handle (`.d`), so only reuse it when it
+  // is a genuine SQLite connection; otherwise fall back to an in-memory store so the
+  // engine boots on any backend.
+  const rawSqlite = (opts.db as unknown as { d?: { exec?: unknown } }).d;
+  const usableSqlite = rawSqlite && typeof rawSqlite.exec === 'function' ? rawSqlite : undefined;
   const idempotencyStore = weaveSqliteIdempotencyStore(
-    rawSqlite ? { database: rawSqlite as never } : {},
+    usableSqlite ? { database: usableSqlite as never } : {},
   );
 
   // Forward-reference: subworkflow resolver needs a handle to the engine
