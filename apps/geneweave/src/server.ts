@@ -7,7 +7,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { newUUIDv7, createLogger } from '@weaveintel/core';
 
 const logger = createLogger('geneweave-server');
@@ -681,12 +681,34 @@ export function createGeneWeaveServer(config: ServerConfig): Server {
     // when present (operator-authored), with a fall-back to the generated docsHtml.
     if (method === 'GET' && (pathname === '/docs' || pathname === '/docs/')) {
       const staticDocsPath = join(__dirname, '..', 'docs', 'weaveintel-docs.html');
+      let body: string;
       try {
-        const body = await fsReadFile(staticDocsPath, 'utf8');
-        html(res, 200, body);
+        body = await fsReadFile(staticDocsPath, 'utf8');
       } catch {
-        html(res, 200, docsHtml);
+        body = docsHtml;
       }
+      // The docs page is a self-contained HTML document with its OWN inline <style>/<script>
+      // blocks. The global CSP set above only whitelists the app-UI's inline hashes, so the
+      // browser would block the docs page's styles and scripts — rendering it as unstyled,
+      // non-interactive text. Replace the CSP for THIS response with one that whitelists exactly
+      // this page's inline hashes (still strict — sha256 hashes, no 'unsafe-inline').
+      const sha = (s: string): string =>
+        `'sha256-${createHash('sha256').update(s, 'utf8').digest('base64')}'`;
+      const styleHashes = [...body.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => sha(m[1] ?? ''));
+      const scriptHashes = [...body.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => sha(m[1] ?? ''));
+      res.setHeader(
+        'Content-Security-Policy',
+        [
+          "default-src 'self'",
+          `script-src 'self' ${scriptHashes.join(' ')} https://cdn.sheetjs.com`,
+          `style-src 'self' ${styleHashes.join(' ')} https://fonts.googleapis.com`,
+          "font-src 'self' https://fonts.gstatic.com",
+          "img-src 'self' data: https:",
+          "connect-src 'self' ws: wss:",
+          "frame-ancestors 'none'",
+        ].join('; '),
+      );
+      html(res, 200, body);
       return;
     }
 
