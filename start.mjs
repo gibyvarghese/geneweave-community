@@ -33,7 +33,9 @@ const app = await createGeneWeave({
   port,
   host: process.env.HOST || '127.0.0.1',
   jwtSecret: required('JWT_SECRET'),
-  database: { type: 'sqlite', path: process.env.DB_PATH || './geneweave.db' },
+  database: process.env.WEAVE_DB === 'postgres'
+    ? { type: 'postgres', connectionString: required('DATABASE_URL') }
+    : { type: 'sqlite', path: process.env.DB_PATH || process.env.WEAVE_DB_PATH || './geneweave.db' },
   providers,
   defaultProvider,
   defaultModel,
