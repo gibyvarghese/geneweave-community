@@ -7260,6 +7260,38 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // `bootstrapTenant(...)` materializes a KEK + DEK + BIK on first use.
     // Idempotent via INSERT OR IGNORE.
     await this.seedDefaultEncryptionPolicies();
+
+    // ─── Tenancy Realm Phase 0 — a real tenant entity per seeded tenant_config ───
+    // Migrations (m150) create the tenants table + backfill EXISTING tenant_ids, but on a fresh DB
+    // they run BEFORE the default/enterprise/trial tenant_configs are seeded above. This idempotent
+    // step ensures each seeded config also has a matching root tenant entity. INSERT OR IGNORE.
+    await this.seedTenantEntities();
+  }
+
+  /**
+   * Ensure a root tenant entity exists for the default tenant and for every seeded tenant_config
+   * (and any other tenant_id-bearing table). Idempotent (INSERT OR IGNORE by id). Complements
+   * migration m150, which backfills the tenant_ids an already-running install has accumulated.
+   */
+  private async seedTenantEntities(): Promise<void> {
+    this.d.exec(`
+      INSERT OR IGNORE INTO tenants (id, name, parent_tenant_id, path, depth, status)
+      VALUES ('default', 'Default', NULL, '/default/', 0, 'active')
+    `);
+    this.d.exec(`
+      INSERT OR IGNORE INTO tenants (id, name, parent_tenant_id, path, depth, status)
+      SELECT tc.tenant_id, tc.name, NULL, '/' || tc.tenant_id || '/', 0, 'active'
+      FROM tenant_configs tc
+      WHERE tc.tenant_id IS NOT NULL AND tc.tenant_id <> ''
+    `);
+    for (const src of ['users', 'tenant_governance', 'tenant_appearance', 'tenant_encryption_policy', 'tenant_biks']) {
+      this.d.exec(`
+        INSERT OR IGNORE INTO tenants (id, name, parent_tenant_id, path, depth, status)
+        SELECT DISTINCT s.tenant_id, s.tenant_id, NULL, '/' || s.tenant_id || '/', 0, 'active'
+        FROM ${src} s
+        WHERE s.tenant_id IS NOT NULL AND s.tenant_id <> ''
+      `);
+    }
   }
 
   /**
