@@ -25,6 +25,7 @@ import { getModelCapabilityFlags } from '@weaveintel/routing';
 import { stringifyPromptVariables } from '@weaveintel/prompts';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import { HARD_EXECUTION_GUARD_POLICY, SUPERVISOR_CODE_EXECUTION_POLICY } from '../chat-policies.js';
+import { realmContentHash, parseRealmSemantic } from '../migrations/m151-realm-columns.js';
 import type { PgCtx } from '../db-postgres-ctx.js';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type {
@@ -2462,6 +2463,32 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
         );
       }
       await ctx.query(`UPDATE users SET tenant_id = NULL WHERE tenant_id = ''`);
+
+      // ─── Tenancy Realm Phase 1 — classify seeded prompt config as global-realm originals ───
+      // Mirrors the SQLite side (migration m151 + applyM151RealmColumns re-run in seedDefaultData).
+      // The realm columns + unique indexes come from POSTGRES_FULL_SCHEMA; here we backfill
+      // logical_key (SQL) and content_hash (computed in JS, identical hash to SQLite → parity).
+      await ctx.query(`UPDATE prompts SET logical_key = COALESCE(NULLIF(key, ''), id) WHERE logical_key IS NULL OR logical_key = ''`);
+      await ctx.query(`UPDATE prompt_fragments SET logical_key = COALESCE(NULLIF(key, ''), id) WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'prompts', ['name', 'description', 'category', 'template', 'variables', 'model_compatibility', 'execution_defaults', 'framework']);
+      await backfillRealmContentHash(ctx, 'prompt_fragments', ['name', 'description', 'category', 'content', 'variables']);
     },
   };
+}
+
+/**
+ * Postgres twin of m151's hashRows: compute a stable content_hash for every prompt/fragment row that
+ * doesn't have one yet, using the SAME canonical-hash the SQLite migration uses (so the two engines
+ * produce identical hashes and drift comparisons stay engine-agnostic).
+ */
+async function backfillRealmContentHash(ctx: PgCtx, table: string, semanticCols: string[]): Promise<void> {
+  const { rows } = await ctx.query(
+    `SELECT id, ${semanticCols.map((c) => `"${c}"`).join(', ')} FROM ${table} WHERE content_hash IS NULL OR content_hash = ''`,
+    [],
+  );
+  for (const r of rows as Array<Record<string, unknown>>) {
+    const semantic: Record<string, unknown> = {};
+    for (const c of semanticCols) semantic[c] = parseRealmSemantic(r[c]);
+    await ctx.query(`UPDATE ${table} SET content_hash = $1 WHERE id = $2`, [realmContentHash(semantic), r['id']]);
+  }
 }

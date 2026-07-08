@@ -3,6 +3,7 @@
  *
  * Concrete DatabaseAdapter backed by better-sqlite3.
  */
+import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
 
 import { newUUIDv7 } from '@weaveintel/core';
 import { getModelCapabilityFlags } from '@weaveintel/routing';
@@ -1022,6 +1023,20 @@ export class SQLiteAdapter implements DatabaseAdapter {
       p.metadata ?? null,
       p.is_default,
       p.enabled,
+    );
+  }
+
+  async insertRealmPromptRow(p: Omit<PromptRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO prompts (id, key, name, description, category, prompt_type, owner, status, tags, template, variables, version, model_compatibility, execution_defaults, framework, metadata, is_default, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      p.id, p.key ?? null, p.name, p.description ?? null, p.category ?? null, p.prompt_type,
+      p.owner ?? null, p.status, p.tags ?? null, p.template, p.variables ?? null, p.version,
+      p.model_compatibility ?? null, p.execution_defaults ?? null, p.framework ?? null, p.metadata ?? null,
+      p.is_default, p.enabled,
+      p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
+      p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
     );
   }
 
@@ -7266,6 +7281,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // they run BEFORE the default/enterprise/trial tenant_configs are seeded above. This idempotent
     // step ensures each seeded config also has a matching root tenant entity. INSERT OR IGNORE.
     await this.seedTenantEntities();
+
+    // ─── Tenancy Realm Phase 1 — classify the just-seeded prompt config as global-realm originals ───
+    // m151 adds the realm columns + backfills, but on a fresh DB it runs BEFORE prompts are seeded
+    // above. Re-running the (idempotent) migration backfills logical_key + content_hash for the
+    // freshly-seeded rows too. Guarded ALTERs are skipped; only empty content_hashes are filled.
+    applyM151RealmColumns(this.d);
   }
 
   /**

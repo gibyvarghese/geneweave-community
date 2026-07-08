@@ -23,6 +23,8 @@ import {
 } from '@weaveintel/prompts';
 import type { ChatSettings } from './chat-runtime.js';
 import type { DatabaseAdapter } from './db.js';
+import { resolveTenantEffectivePrompt } from './chat-realm-prompt.js';
+import type { RealmProvenance } from '@weaveintel/realm';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -46,6 +48,12 @@ export interface ResolvedSystemPrompt {
     experimentId?: string;
     experimentVariantLabel?: string;
   };
+  /**
+   * Tenancy Realm: which realm the effective prompt came from (global default, the tenant's own fork,
+   * or a parent's shared copy) + drift. Present only when a tenant fork actually won. Stamp into traces
+   * so "which prompt version produced this output for this tenant?" is answerable.
+   */
+  realm?: RealmProvenance;
 }
 
 // ── System prompt resolution ────────────────────────────────
@@ -69,15 +77,21 @@ export function toPromptStrategyInfo(result: PromptRecordExecutionResult): Promp
 export async function resolveSystemPrompt(
   db: DatabaseAdapter,
   settings: ChatSettings,
+  tenantId?: string | null,
 ): Promise<ResolvedSystemPrompt> {
   if (!settings.systemPrompt) return { content: undefined };
 
   try {
     // Check if the system prompt references a DB prompt by name
     const rows = await db.listPrompts();
-    const match = rows.find(
+    const baseMatch = rows.find(
       r => r.enabled && (r.id === settings.systemPrompt || r.name === settings.systemPrompt),
     );
+    // Tenancy Realm: prefer this tenant's own fork of the prompt (nearest-owner-wins) over the global
+    // default. With no tenant, or no fork, this returns the base match untouched — fully backward-compat.
+    const effective = baseMatch ? resolveTenantEffectivePrompt(rows, baseMatch, tenantId) : undefined;
+    const match = effective?.row;
+    const realmProvenance = effective?.provenance;
     if (match) {
       const versions = await db.listPromptVersions(match.id);
       const experiments = await db.listPromptExperiments(match.id);
@@ -168,6 +182,8 @@ export async function resolveSystemPrompt(
         },
         strategy: toPromptStrategyInfo(executed),
         resolution: resolved.meta,
+        // Only stamp realm when a tenant fork/native/inherited copy actually won (not the plain global).
+        ...(realmProvenance && realmProvenance.kind !== 'global' ? { realm: realmProvenance } : {}),
       };
     }
   } catch (err) {

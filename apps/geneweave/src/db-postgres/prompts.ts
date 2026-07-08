@@ -124,6 +124,21 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       );
     },
 
+    async insertRealmPromptRow(p: Omit<PromptRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO prompts (id, key, name, description, category, prompt_type, owner, status, tags, template, variables, version, model_compatibility, execution_defaults, framework, metadata, is_default, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
+        [
+          p.id, p.key ?? null, p.name, p.description ?? null, p.category ?? null, p.prompt_type,
+          p.owner ?? null, p.status, p.tags ?? null, p.template, p.variables ?? null, p.version,
+          p.model_compatibility ?? null, p.execution_defaults ?? null, p.framework ?? null, p.metadata ?? null,
+          p.is_default, p.enabled,
+          p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
+          p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
+        ],
+      );
+    },
+
     async getPrompt(id: string): Promise<PromptRow | null> {
       const { rows } = await ctx.query('SELECT * FROM prompts WHERE id = $1', [id]);
       return (rows[0] as PromptRow | undefined) ?? null;

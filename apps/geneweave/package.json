@@ -41,7 +41,7 @@
     "@weaveintel/geneweave-ui": "*",
     "@weaveintel/guardrails": "^0.1.1",
     "@weaveintel/human-tasks": "^0.1.1",
-    "@weaveintel/identity": "^0.1.1",
+    "@weaveintel/identity": "^0.1.2",
     "@weaveintel/live-agents": "^0.1.1",
     "@weaveintel/live-agents-runtime": "^0.1.1",
     "@weaveintel/mcp-client": "^0.1.1",
@@ -73,7 +73,8 @@
     "@weaveintel/workflows": "^0.1.1",
     "better-sqlite3": "^11.9.1",
     "pg": "^8.13.0",
-    "redis": "^4.7.0"
+    "redis": "^4.7.0",
+    "@weaveintel/realm": "^0.1.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

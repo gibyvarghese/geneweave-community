@@ -18,6 +18,11 @@ export interface IPromptStore {
   listPrompts(): Promise<PromptRow[]>;
   updatePrompt(id: string, fields: Partial<Omit<PromptRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deletePrompt(id: string): Promise<void>;
+  /**
+   * Tenancy Realm: insert a prompt row INCLUDING its realm columns (createPrompt omits them and always
+   * defaults to the global realm). Used to persist a tenant's copy-on-write fork of a global prompt.
+   */
+  insertRealmPromptRow(row: Omit<PromptRow, 'created_at' | 'updated_at'>): Promise<void>;
 
   // Prompt Versions
   createPromptVersion(v: Omit<PromptVersionRow, 'created_at' | 'updated_at'>): Promise<void>;

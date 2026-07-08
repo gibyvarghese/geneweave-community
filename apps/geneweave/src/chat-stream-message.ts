@@ -353,7 +353,7 @@ export async function streamMessageImpl(
   const userPersona = normalizePersona(actor?.persona, 'user');
   const tenantId = actor?.tenant_id ?? null;
   const settings = settingsFromRow(await deps.db.getChatSettings(chatId));
-  const resolvedSystemPrompt = await resolveSystemPrompt(deps.db, settings);
+  const resolvedSystemPrompt = await resolveSystemPrompt(deps.db, settings, tenantId);
   const resolvedPrompt = await deps.withResponseCardFormatPolicy(resolvedSystemPrompt.content);
   // Resolve attachments early so budget selection can inspect them.
   const attachments = normalizeAttachments(opts?.attachments);
