@@ -103,6 +103,33 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     }
   });
 
+  it('realm columns (Phase 1): prompts + fragments are global-realm originals with identical content_hash across engines', async () => {
+    for (const table of ['prompts', 'prompt_fragments']) {
+      const { rows: pRows } = await pool.query(
+        `SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} ORDER BY logical_key`,
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sRows = (sq as any).d
+        .prepare(`SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} ORDER BY logical_key`)
+        .all() as Array<{ logical_key: string; realm: string; owner_tenant_id: string | null; content_hash: string }>;
+
+      expect(pRows.length).toBe(sRows.length);
+      expect(pRows.length).toBeGreaterThan(0);
+      // Every seeded row is a global original: realm='global', no owner, non-empty hash, backfilled key.
+      for (const r of pRows as Array<{ logical_key: string; realm: string; owner_tenant_id: string | null; content_hash: string }>) {
+        expect(r.realm).toBe('global');
+        expect(r.owner_tenant_id == null).toBe(true);
+        expect(r.logical_key).toBeTruthy();
+        expect(r.content_hash.startsWith('sha256:')).toBe(true);
+      }
+      // Byte-for-byte parity: same logical_key → same content_hash on both engines (drift stays engine-agnostic).
+      const pByKey = new Map((pRows as Array<{ logical_key: string; content_hash: string }>).map((r) => [r.logical_key, r.content_hash]));
+      for (const s of sRows) {
+        expect(pByKey.get(s.logical_key), `hash mismatch for ${table}.${s.logical_key}`).toBe(s.content_hash);
+      }
+    }
+  });
+
   it('routing policies: identical id sets and count (both seed from empty)', async () => {
     const s = await sq.listRoutingPolicies();
     const p = await pg.listRoutingPolicies();

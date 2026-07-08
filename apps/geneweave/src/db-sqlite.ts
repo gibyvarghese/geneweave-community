@@ -3,6 +3,7 @@
  *
  * Concrete DatabaseAdapter backed by better-sqlite3.
  */
+import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
 
 import { newUUIDv7 } from '@weaveintel/core';
 import { getModelCapabilityFlags } from '@weaveintel/routing';
@@ -7266,6 +7267,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // they run BEFORE the default/enterprise/trial tenant_configs are seeded above. This idempotent
     // step ensures each seeded config also has a matching root tenant entity. INSERT OR IGNORE.
     await this.seedTenantEntities();
+
+    // ─── Tenancy Realm Phase 1 — classify the just-seeded prompt config as global-realm originals ───
+    // m151 adds the realm columns + backfills, but on a fresh DB it runs BEFORE prompts are seeded
+    // above. Re-running the (idempotent) migration backfills logical_key + content_hash for the
+    // freshly-seeded rows too. Guarded ALTERs are skipped; only empty content_hashes are filled.
+    applyM151RealmColumns(this.d);
   }
 
   /**
