@@ -1026,6 +1026,20 @@ export class SQLiteAdapter implements DatabaseAdapter {
     );
   }
 
+  async insertRealmPromptRow(p: Omit<PromptRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO prompts (id, key, name, description, category, prompt_type, owner, status, tags, template, variables, version, model_compatibility, execution_defaults, framework, metadata, is_default, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      p.id, p.key ?? null, p.name, p.description ?? null, p.category ?? null, p.prompt_type,
+      p.owner ?? null, p.status, p.tags ?? null, p.template, p.variables ?? null, p.version,
+      p.model_compatibility ?? null, p.execution_defaults ?? null, p.framework ?? null, p.metadata ?? null,
+      p.is_default, p.enabled,
+      p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
+      p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
+    );
+  }
+
   async getPrompt(id: string): Promise<PromptRow | null> {
     return (this.d.prepare('SELECT * FROM prompts WHERE id = ?').get(id) as PromptRow) ?? null;
   }

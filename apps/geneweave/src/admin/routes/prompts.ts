@@ -27,6 +27,7 @@ import {
   toDbUpdate,
 } from '../api/admin-route-helpers.js';
 import type { RouterLike } from '../api/types.js';
+import { buildTenantPromptFork, resolveTenantEffectivePrompt } from '../../chat-realm-prompt.js';
 
 export function registerAdminPromptRoutes(
   router: RouterLike,
@@ -122,6 +123,78 @@ export function registerAdminPromptRoutes(
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
     await db.deletePrompt(params['id']!);
     json(res, 200, { ok: true });
+  }, { auth: true, csrf: true });
+
+  // ── Admin: Tenancy Realm — per-tenant prompt customization ────────────────
+  // A global prompt is shared by everyone. A tenant can fork its OWN copy (copy-on-write) and edit it
+  // without touching anybody else's; resolution later prefers that copy for the tenant (nearest-owner-wins).
+
+  const REALM_OVERRIDE_KEYS = ['name', 'description', 'category', 'template', 'variables', 'model_compatibility', 'execution_defaults', 'framework', 'share_mode'] as const;
+
+  // Inspect who-gets-what for a tenant: the effective prompt + where it came from + drift.
+  router.get('/api/admin/prompts/:id/realm', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const base = await db.getPrompt(params['id']!);
+    if (!base) { json(res, 404, { error: 'Prompt not found' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const tenantId = url.searchParams.get('tenantId');
+    const rows = await db.listPrompts();
+    const effective = resolveTenantEffectivePrompt(rows, base, tenantId);
+    json(res, 200, { effective: effective.row, provenance: effective.provenance, tenantId });
+  });
+
+  // Create/replace a tenant's fork of this global prompt.
+  router.post('/api/admin/prompts/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getPrompt(params['id']!);
+    if (!global) { json(res, 404, { error: 'Prompt not found' }); return; }
+    if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global prompt, not an existing tenant copy' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const tenantId = body['tenantId'];
+    if (typeof tenantId !== 'string' || !tenantId.trim()) { json(res, 400, { error: 'tenantId required' }); return; }
+
+    // Validate a supplied description the same way create/update does.
+    if (body['description'] !== undefined) {
+      const validated = requireDetailedDescription(body['description'], 'prompt', res);
+      if (!validated) return;
+      body['description'] = validated;
+    }
+    const overrides: Record<string, unknown> = {};
+    for (const k of REALM_OVERRIDE_KEYS) {
+      if (body[k] === undefined) continue;
+      overrides[k] = k === 'variables' ? normalizePromptVariables(body[k]) : ((k === 'model_compatibility' || k === 'execution_defaults' || k === 'framework') ? normalizeJsonField(body[k]) : body[k]);
+    }
+
+    // Copy-on-write: one fork per (logical_key, tenant). Replace an existing fork if present.
+    const logicalKey = global.logical_key ?? global.key ?? global.id;
+    const rows = await db.listPrompts();
+    const existing = rows.find((r) => r.realm === 'tenant' && r.owner_tenant_id === tenantId && (r.logical_key ?? r.key ?? r.id) === logicalKey);
+    if (existing) await db.deletePrompt(existing.id);
+
+    const fork = buildTenantPromptFork(global, tenantId, overrides as Parameters<typeof buildTenantPromptFork>[2]);
+    await db.insertRealmPromptRow(fork);
+    await emitCacheEvent('prompt_update', { promptId: fork.id });
+    const saved = await db.getPrompt(fork.id);
+    json(res, 201, { fork: saved, replacedExisting: Boolean(existing) });
+  }, { auth: true, csrf: true });
+
+  // Revert: drop a tenant's fork so it falls back to the global default.
+  router.del('/api/admin/prompts/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getPrompt(params['id']!);
+    if (!global) { json(res, 404, { error: 'Prompt not found' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const tenantId = url.searchParams.get('tenantId');
+    if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    const logicalKey = global.logical_key ?? global.key ?? global.id;
+    const rows = await db.listPrompts();
+    const fork = rows.find((r) => r.realm === 'tenant' && r.owner_tenant_id === tenantId && (r.logical_key ?? r.key ?? r.id) === logicalKey);
+    if (!fork) { json(res, 404, { error: 'No customization for this tenant' }); return; }
+    await db.deletePrompt(fork.id);
+    await emitCacheEvent('prompt_update', { promptId: fork.id });
+    json(res, 200, { ok: true, reverted: fork.id });
   }, { auth: true, csrf: true });
 
   // ── Admin: Prompt Frameworks (Phase 2) ────────────────────

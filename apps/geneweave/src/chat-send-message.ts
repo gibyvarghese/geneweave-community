@@ -246,7 +246,7 @@ export async function sendMessageImpl(
   // into supervisor/ensemble tasks without requiring a saved chat_settings row.
   if (opts?.toolsOverride) settings.enabledTools = opts.toolsOverride;
   if (opts?.workersOverride) settings.workers = opts.workersOverride;
-  const resolvedSystemPrompt = await resolveSystemPrompt(deps.db, settings);
+  const resolvedSystemPrompt = await resolveSystemPrompt(deps.db, settings, tenantId);
   const resolvedPrompt = await deps.withResponseCardFormatPolicy(resolvedSystemPrompt.content);
   const traceId = newUUIDv7();
   const ctx = weaveContext({ runtime: deps.config.runtime, userId, deadline: Date.now() + 120_000, metadata: { traceId, chatId } });
