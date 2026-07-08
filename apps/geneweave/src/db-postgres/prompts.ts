@@ -11,6 +11,8 @@
  * value is a bound parameter.
  */
 import type { PgCtx } from '../db-postgres-ctx.js';
+import { promptDriftReport, resyncPromptToPackage } from '../realm-prompt-drift.js';
+import type { SqlClient } from '@weaveintel/realm';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type { ModelPricingRow } from '../db-types/routing.js';
 import type {
@@ -137,6 +139,14 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
           p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
         ],
       );
+    },
+
+    async promptDriftReport() {
+      return promptDriftReport(ctx as unknown as SqlClient, 'postgres');
+    },
+
+    async resyncPromptToPackage(promptId: string) {
+      return resyncPromptToPackage(ctx as unknown as SqlClient, 'postgres', promptId);
     },
 
     async getPrompt(id: string): Promise<PromptRow | null> {

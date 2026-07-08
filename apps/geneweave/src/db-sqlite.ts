@@ -4,6 +4,7 @@
  * Concrete DatabaseAdapter backed by better-sqlite3.
  */
 import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
+import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
 
 import { newUUIDv7 } from '@weaveintel/core';
 import { getModelCapabilityFlags } from '@weaveintel/routing';
@@ -1038,6 +1039,14 @@ export class SQLiteAdapter implements DatabaseAdapter {
       p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
       p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
     );
+  }
+
+  async promptDriftReport(): Promise<import('./realm-prompt-drift.js').PromptDriftReport> {
+    return promptDriftReport(sqliteSqlClient(this.d), 'sqlite');
+  }
+
+  async resyncPromptToPackage(promptId: string): Promise<{ ok: boolean; reason?: string }> {
+    return resyncPromptToPackage(sqliteSqlClient(this.d), 'sqlite', promptId);
   }
 
   async getPrompt(id: string): Promise<PromptRow | null> {
@@ -5385,6 +5394,14 @@ export class SQLiteAdapter implements DatabaseAdapter {
       }
 
     }
+
+    // ── Tenancy Realm Phase 2 — reconcile shipped prompt defaults with the store ──
+    // Ensure the just-seeded prompts carry logical_key + content_hash (m151 is idempotent), then run
+    // the drift reconcile against THIS release's `prompts` defaults: record each as a baseline version,
+    // ADOPT a changed default the operator never touched (stale), and leave customized/diverged rows as
+    // the operator left them. This is what makes seeding drift-aware instead of insert-only.
+    applyM151RealmColumns(this.d);
+    await reconcilePromptRealm(sqliteSqlClient(this.d), 'sqlite', prompts);
 
     // Prompt Frameworks — seed the 4 built-in named structures (Phase 2)
     const frameworks: Omit<PromptFrameworkRow, 'created_at' | 'updated_at'>[] = [

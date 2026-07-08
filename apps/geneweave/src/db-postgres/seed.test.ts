@@ -104,6 +104,23 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     }
   });
 
+  it('realm versions (Phase 2): both engines record one baseline per built-in prompt and report every one in_sync', async () => {
+    // One realm_versions baseline per global prompt, identical count across engines.
+    const { rows: pv } = await pool.query(`SELECT count(*)::int AS c FROM realm_versions WHERE family='prompts'`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sv = (sq as any).d.prepare(`SELECT count(*) AS c FROM realm_versions WHERE family='prompts'`).get() as { c: number };
+    const globals = (await pg.listPrompts()).filter((p) => (p.realm ?? 'global') === 'global').length;
+    expect((pv[0] as { c: number }).c).toBe(globals);
+    expect(sv.c).toBe(globals);
+
+    // A fresh install is fully in sync on both engines (drift report).
+    const pgDrift = await pg.promptDriftReport();
+    const sqDrift = await sq.promptDriftReport();
+    expect(pgDrift.summary.customized + pgDrift.summary.stale + pgDrift.summary.diverged).toBe(0);
+    expect(sqDrift.summary).toEqual(pgDrift.summary);
+    expect(pgDrift.summary.in_sync).toBe(globals);
+  });
+
   it('realm columns (Phase 1): prompts + fragments are global-realm originals with identical content_hash across engines', async () => {
     for (const table of ['prompts', 'prompt_fragments']) {
       const { rows: pRows } = await pool.query(

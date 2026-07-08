@@ -54,6 +54,13 @@ export function registerAdminPromptRoutes(
     json(res, 200, { prompts });
   });
 
+  // Phase 2 drift report — registered BEFORE /:id so 'drift' isn't captured as an id.
+  router.get('/api/admin/prompts/drift', async (_req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const report = await db.promptDriftReport();
+    json(res, 200, report);
+  });
+
   router.get('/api/admin/prompts/:id', async (_req, res, params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
     const prompt = await db.getPrompt(params['id']!);
@@ -195,6 +202,20 @@ export function registerAdminPromptRoutes(
     await db.deletePrompt(fork.id);
     await emitCacheEvent('prompt_update', { promptId: fork.id });
     json(res, 200, { ok: true, reverted: fork.id });
+  }, { auth: true, csrf: true });
+
+  // ── Admin: Tenancy Realm Phase 2 — built-in default drift + one-click resync ──────────────
+  // "Which built-in prompts have I customized, and did a product update change any of them?"
+  // (GET /drift is registered above the /:id route so 'drift' is never read as a prompt id.)
+
+  // Take the shipped version for a customized/diverged built-in → back to in_sync.
+  router.post('/api/admin/prompts/:id/resync', async (_req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const result = await db.resyncPromptToPackage(params['id']!);
+    if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason ?? 'cannot resync' }); return; }
+    await emitCacheEvent('prompt_update', { promptId: params['id'] });
+    const prompt = await db.getPrompt(params['id']!);
+    json(res, 200, { ok: true, prompt });
   }, { auth: true, csrf: true });
 
   // ── Admin: Prompt Frameworks (Phase 2) ────────────────────

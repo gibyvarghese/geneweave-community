@@ -23,6 +23,10 @@ export interface IPromptStore {
    * defaults to the global realm). Used to persist a tenant's copy-on-write fork of a global prompt.
    */
   insertRealmPromptRow(row: Omit<PromptRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm Phase 2: which built-in prompts are in_sync / customized / stale / diverged vs the shipped defaults. */
+  promptDriftReport(): Promise<import('../realm-prompt-drift.js').PromptDriftReport>;
+  /** Tenancy Realm Phase 2: take the shipped version for a customized/diverged built-in (re-baseline to in_sync). */
+  resyncPromptToPackage(promptId: string): Promise<{ ok: boolean; reason?: string }>;
 
   // Prompt Versions
   createPromptVersion(v: Omit<PromptVersionRow, 'created_at' | 'updated_at'>): Promise<void>;

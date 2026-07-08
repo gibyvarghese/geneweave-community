@@ -74,7 +74,7 @@
     "better-sqlite3": "^11.9.1",
     "pg": "^8.13.0",
     "redis": "^4.7.0",
-    "@weaveintel/realm": "^0.1.0"
+    "@weaveintel/realm": "^0.2.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
