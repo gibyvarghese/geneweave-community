@@ -30,4 +30,8 @@ jobs:
         run: npx turbo test --concurrency=1
         env:
           JWT_SECRET: ci-test-secret
+          # Stop Testcontainers' Ryuk reaper killing the Postgres container while tests still hold
+          # pooled connections (which surfaces a FATAL 57P01 as an unhandled error). Runner VMs are
+          # ephemeral, so nothing leaks.
+          TESTCONTAINERS_RYUK_DISABLED: "true"
       # Playwright e2e need a running server — add a dedicated job as the app grows.

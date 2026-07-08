@@ -35,6 +35,7 @@ describe('Postgres full schema (generated)', () => {
     const pg = (await import('pg')).default;
     const container = await new PostgreSqlContainer('postgres:16').start();
     const pool = new pg.Pool({ connectionString: container.getConnectionUri() });
+    pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
     try {
       await pool.query(POSTGRES_FULL_SCHEMA); // the entire schema, one shot — FK order must be right
       const { rows } = await pool.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'");

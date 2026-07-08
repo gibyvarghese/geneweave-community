@@ -65,6 +65,7 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     const pgLib = (await import('pg')).default;
     container = await new PostgreSqlContainer('postgres:16').start();
     pool = new pgLib.Pool({ connectionString: container.getConnectionUri() });
+    pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
 
     // Full composed adapter (composes every ported domain). initialize() applies the schema.
     pg = createPostgresAdapter({ client: pool });

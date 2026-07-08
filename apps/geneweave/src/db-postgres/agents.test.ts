@@ -85,6 +85,7 @@ describe.skipIf(!HAS_DOCKER)('pgAgentStore — IAgentStore parity (real Postgres
     const pgLib = (await import('pg')).default;
     container = await new PostgreSqlContainer('postgres:16').start();
     pool = new pgLib.Pool({ connectionString: container.getConnectionUri() });
+    pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
     await pool.query(POSTGRES_FULL_SCHEMA);
     pg = pgAgentStore({ query: (t, p) => pool.query(t, p as unknown[]), now: NOW_SQL }) as IAgentStore;
   }, 180_000);
