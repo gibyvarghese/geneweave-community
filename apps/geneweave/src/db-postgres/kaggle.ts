@@ -385,7 +385,7 @@ export function pgKaggleStore(ctx: PgCtx): Partial<DatabaseAdapter> {
         else { where.push(`tenant_id = $${params.length + 1}`); params.push(opts.tenantId); }
       }
       params.push(opts.limit ?? 100, opts.offset ?? 0);
-      const sql = `SELECT * FROM kaggle_runs${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY created_at COLLATE "C" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+      const sql = `SELECT * FROM kaggle_runs${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY created_at COLLATE "C" DESC, id COLLATE "C" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
       const { rows } = await ctx.query(sql, params);
       return rows as unknown as KaggleRunRow[];
     },

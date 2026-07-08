@@ -63,6 +63,7 @@ describe.skipIf(!HAS_DOCKER)('pgMeStore — IMeStore parity (real Postgres)', ()
     const pgLib = (await import('pg')).default;
     container = await new PostgreSqlContainer('postgres:16').start();
     pool = new pgLib.Pool({ connectionString: container.getConnectionUri() });
+    pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
     await pool.query(POSTGRES_FULL_SCHEMA);
     pg = pgMeStore({ query: (t: string, p?: readonly unknown[]) => pool.query(t, p as unknown[]), now: NOW_SQL });
     sq = tempSqlite();

@@ -61,6 +61,7 @@ describe.skipIf(!HAS_DOCKER)('Postgres voice store — parity with SQLite (real 
     const pgLib = (await import('pg')).default;
     container = await new PostgreSqlContainer('postgres:16').start();
     pool = new pgLib.Pool({ connectionString: container.getConnectionUri() });
+    pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
     await pool.query(POSTGRES_FULL_SCHEMA);
     // Mirror the SQLite m47 UNIQUE(user_id) that ON CONFLICT(user_id) depends on.
     await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_voice_configs_user ON voice_configs(user_id)');

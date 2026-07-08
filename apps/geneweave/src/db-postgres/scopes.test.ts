@@ -54,6 +54,7 @@ describe.skipIf(!HAS_DOCKER)('pgScopesStore — Postgres parity (real Postgres)'
     const pgLib = (await import('pg')).default;
     container = await new PostgreSqlContainer('postgres:16').start();
     pool = new pgLib.Pool({ connectionString: container.getConnectionUri() });
+    pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
     await pool.query(POSTGRES_FULL_SCHEMA);
     pg = pgScopesStore({ query: (t, p) => pool.query(t, p as unknown[]), now: NOW_SQL });
   }, 180_000);

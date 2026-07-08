@@ -7988,7 +7988,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       if (opts.tenantId === null) where.push('tenant_id IS NULL');
       else { where.push('tenant_id = ?'); params.push(opts.tenantId); }
     }
-    const sql = `SELECT * FROM kaggle_runs${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    const sql = `SELECT * FROM kaggle_runs${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`;
     params.push(opts.limit ?? 100, opts.offset ?? 0);
     return this.d.prepare(sql).all(...params) as KaggleRunRow[];
   }

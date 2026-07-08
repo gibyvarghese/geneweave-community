@@ -135,6 +135,7 @@ describe.skipIf(!HAS_DOCKER)('Phase 1 — Postgres adapter (real Postgres)', () 
     const pgLib = (await import('pg')).default;
     container = await new PostgreSqlContainer('postgres:16').start();
     pool = new pgLib.Pool({ connectionString: container.getConnectionUri() });
+    pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
     pg = createPostgresAdapter({ client: pool }) as unknown as DatabaseAdapterLike;
     await pg.initialize();
   }, 180_000);
