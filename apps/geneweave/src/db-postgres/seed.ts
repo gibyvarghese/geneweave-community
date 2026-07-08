@@ -2434,6 +2434,34 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
          ON CONFLICT DO NOTHING`,
         ['demo-encrypted-tenant'],
       );
+
+      // ─── Tenancy Realm Phase 0 — a real root tenant entity per seeded tenant_config ───
+      // Mirrors the SQLite side (migration m150 + seedTenantEntities). The tenants table itself comes
+      // from POSTGRES_FULL_SCHEMA; here we backfill the default tenant + one root per tenant_config, and
+      // normalise blank tenant labels to NULL. Idempotent (ON CONFLICT DO NOTHING).
+      await ctx.query(
+        `INSERT INTO tenants (id, name, parent_tenant_id, path, depth, status)
+         VALUES ('default', 'Default', NULL, '/default/', 0, 'active')
+         ON CONFLICT (id) DO NOTHING`,
+      );
+      await ctx.query(
+        `INSERT INTO tenants (id, name, parent_tenant_id, path, depth, status)
+         SELECT tc.tenant_id, tc.name, NULL, '/' || tc.tenant_id || '/', 0, 'active'
+         FROM tenant_configs tc
+         WHERE tc.tenant_id IS NOT NULL AND tc.tenant_id <> ''
+         ON CONFLICT (id) DO NOTHING`,
+      );
+      // Every other tenant_id-bearing table (name defaults to the id).
+      for (const src of ['users', 'tenant_governance', 'tenant_appearance', 'tenant_encryption_policy', 'tenant_biks']) {
+        await ctx.query(
+          `INSERT INTO tenants (id, name, parent_tenant_id, path, depth, status)
+           SELECT DISTINCT s.tenant_id, s.tenant_id, NULL, '/' || s.tenant_id || '/', 0, 'active'
+           FROM ${src} s
+           WHERE s.tenant_id IS NOT NULL AND s.tenant_id <> ''
+           ON CONFLICT (id) DO NOTHING`,
+        );
+      }
+      await ctx.query(`UPDATE users SET tenant_id = NULL WHERE tenant_id = ''`);
     },
   };
 }
