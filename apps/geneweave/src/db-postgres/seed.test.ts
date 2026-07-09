@@ -104,6 +104,19 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     }
   });
 
+  it('realm state overlay (Phase 3): disabling a built-in for a tenant behaves identically on both engines', async () => {
+    const skill = (await pg.listEnabledSkills())[0]!.id;
+    for (const db of [pg, sq]) {
+      await db.setRealmState('skills', skill, 'acme', { enabled: false });
+      await db.setRealmState('skills', skill, 'acme', { priority: 7 }); // merge, keep disabled
+      const acme = (await db.resolveRealmStates('skills', 'acme', [skill])).get(skill)!;
+      expect([acme.active, acme.priority]).toEqual([false, 7]);
+      expect((await db.resolveRealmStates('skills', 'globex', [skill])).get(skill)!.active).toBe(true); // isolation
+      await db.clearRealmState('skills', skill, 'acme');
+      expect((await db.resolveRealmStates('skills', 'acme', [skill])).get(skill)!.active).toBe(true);
+    }
+  });
+
   it('realm versions (Phase 2): both engines record one baseline per built-in prompt and report every one in_sync', async () => {
     // One realm_versions baseline per global prompt, identical count across engines.
     const { rows: pv } = await pool.query(`SELECT count(*)::int AS c FROM realm_versions WHERE family='prompts'`);

@@ -461,6 +461,9 @@ export async function streamMessageImpl(
     settings.mode,
     (t) => deps.safeParseJson(t),
     { hasTabularAttachment: hasTabularDataAttachments(attachments) },
+    undefined,
+    undefined,
+    tenantId, // Realm Phase 3: drop skills this tenant disabled for itself
   );
   const streamSkillPrompt = applySkillsToPrompt(
     resolvedPrompt,

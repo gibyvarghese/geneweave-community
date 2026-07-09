@@ -5,6 +5,7 @@
  */
 import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
+import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from './realm-tenant-state.js';
 
 import { newUUIDv7 } from '@weaveintel/core';
 import { getModelCapabilityFlags } from '@weaveintel/routing';
@@ -1047,6 +1048,19 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async resyncPromptToPackage(promptId: string): Promise<{ ok: boolean; reason?: string }> {
     return resyncPromptToPackage(sqliteSqlClient(this.d), 'sqlite', promptId);
+  }
+
+  async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
+    return setRealmState(sqliteSqlClient(this.d), 'sqlite', family, logicalKey, tenantId, patch);
+  }
+  async clearRealmState(family: string, logicalKey: string, tenantId: string): Promise<void> {
+    return clearRealmState(sqliteSqlClient(this.d), 'sqlite', family, logicalKey, tenantId);
+  }
+  async listRealmStates(family: string, tenantId: string) {
+    return listRealmStates(sqliteSqlClient(this.d), 'sqlite', family, tenantId);
+  }
+  async resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
+    return resolveRealmStates(sqliteSqlClient(this.d), 'sqlite', family, tenantId, logicalKeys);
   }
 
   async getPrompt(id: string): Promise<PromptRow | null> {

@@ -218,6 +218,50 @@ export function registerAdminPromptRoutes(
     json(res, 200, { ok: true, prompt });
   }, { auth: true, csrf: true });
 
+  // ── Admin: Tenancy Realm Phase 3 — per-tenant state overlay (SetState) ─────────────────────
+  // Turn a shared built-in (a skill, a prompt) off/on for ONE tenant, reprioritise it, or pin a
+  // version — WITHOUT forking it. `enabled: false` disables; null clears that field.
+
+  const REALM_FAMILIES = new Set(['skills', 'prompts', 'guardrails', 'worker_agents', 'tool_policies']);
+
+  // List a tenant's overlays in a family.
+  router.get('/api/admin/realm-state', async (req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const family = url.searchParams.get('family'); const tenantId = url.searchParams.get('tenantId');
+    if (!family || !tenantId) { json(res, 400, { error: 'family and tenantId required' }); return; }
+    json(res, 200, { states: await db.listRealmStates(family, tenantId) });
+  });
+
+  // Set/patch one overlay. Body: { family, logicalKey, tenantId, enabled?, priority?, pinnedVersion? }.
+  router.put('/api/admin/realm-state', async (req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const family = body['family']; const logicalKey = body['logicalKey']; const tenantId = body['tenantId'];
+    if (typeof family !== 'string' || !REALM_FAMILIES.has(family)) { json(res, 400, { error: `family must be one of ${[...REALM_FAMILIES].join(', ')}` }); return; }
+    if (typeof logicalKey !== 'string' || !logicalKey) { json(res, 400, { error: 'logicalKey required' }); return; }
+    if (typeof tenantId !== 'string' || !tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    const patch: Record<string, unknown> = {};
+    if (body['enabled'] !== undefined) patch['enabled'] = body['enabled'] === null ? null : Boolean(body['enabled']);
+    if (body['priority'] !== undefined) patch['priority'] = body['priority'] === null ? null : Number(body['priority']);
+    if (body['pinnedVersion'] !== undefined) patch['pinnedVersion'] = body['pinnedVersion'] === null ? null : Number(body['pinnedVersion']);
+    const record = await db.setRealmState(family, logicalKey, tenantId, patch);
+    await emitCacheEvent('prompt_update', { promptId: logicalKey });
+    json(res, 200, { state: record });
+  }, { auth: true, csrf: true });
+
+  // Clear a tenant's overlay for a key (fall back to the shared default).
+  router.del('/api/admin/realm-state', async (req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const family = url.searchParams.get('family'); const logicalKey = url.searchParams.get('logicalKey'); const tenantId = url.searchParams.get('tenantId');
+    if (!family || !logicalKey || !tenantId) { json(res, 400, { error: 'family, logicalKey and tenantId required' }); return; }
+    await db.clearRealmState(family, logicalKey, tenantId);
+    json(res, 200, { ok: true });
+  }, { auth: true, csrf: true });
+
   // ── Admin: Prompt Frameworks (Phase 2) ────────────────────
 
   router.get('/api/admin/prompt-frameworks', async (_req, res, _params, auth) => {

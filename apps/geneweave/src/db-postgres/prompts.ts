@@ -12,6 +12,7 @@
  */
 import type { PgCtx } from '../db-postgres-ctx.js';
 import { promptDriftReport, resyncPromptToPackage } from '../realm-prompt-drift.js';
+import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from '../realm-tenant-state.js';
 import type { SqlClient } from '@weaveintel/realm';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type { ModelPricingRow } from '../db-types/routing.js';
@@ -147,6 +148,19 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
 
     async resyncPromptToPackage(promptId: string) {
       return resyncPromptToPackage(ctx as unknown as SqlClient, 'postgres', promptId);
+    },
+
+    async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
+      return setRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId, patch);
+    },
+    async clearRealmState(family: string, logicalKey: string, tenantId: string) {
+      return clearRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId);
+    },
+    async listRealmStates(family: string, tenantId: string) {
+      return listRealmStates(ctx as unknown as SqlClient, 'postgres', family, tenantId);
+    },
+    async resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
+      return resolveRealmStates(ctx as unknown as SqlClient, 'postgres', family, tenantId, logicalKeys);
     },
 
     async getPrompt(id: string): Promise<PromptRow | null> {
