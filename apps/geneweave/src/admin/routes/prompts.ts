@@ -204,6 +204,43 @@ export function registerAdminPromptRoutes(
     json(res, 200, { ok: true, reverted: fork.id });
   }, { auth: true, csrf: true });
 
+  // ── Admin: Tenancy Realm Phase 4 — share a fork down the tree, and promote one up ─────────
+  const SHARE_MODES = new Set(['private', 'children', 'subtree']);
+
+  // Preview who a share would reach BEFORE committing (blast radius).
+  router.get('/api/admin/prompts/:id/blast-radius', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const shareMode = url.searchParams.get('shareMode') ?? 'subtree';
+    if (!SHARE_MODES.has(shareMode)) { json(res, 400, { error: 'shareMode must be private | children | subtree' }); return; }
+    const result = await db.promptShareBlastRadius(params['id']!, shareMode as 'private' | 'children' | 'subtree');
+    if ('error' in result) { json(res, result.error === 'not found' ? 404 : 400, { error: result.error }); return; }
+    json(res, 200, { blastRadius: result });
+  });
+
+  // Share (or unshare) a tenant fork down its part of the org tree.
+  router.post('/api/admin/prompts/:id/share', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const shareMode = body['shareMode'];
+    if (typeof shareMode !== 'string' || !SHARE_MODES.has(shareMode)) { json(res, 400, { error: 'shareMode must be private | children | subtree' }); return; }
+    const result = await db.setPromptShareMode(params['id']!, shareMode as 'private' | 'children' | 'subtree');
+    if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason ?? 'cannot share' }); return; }
+    await emitCacheEvent('prompt_update', { promptId: params['id'] });
+    json(res, 200, { ok: true, shareMode });
+  }, { auth: true, csrf: true });
+
+  // Promote a tenant fork to the shared global default (ProposeToRealm approve).
+  router.post('/api/admin/prompts/:id/promote', async (_req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const result = await db.promotePromptToGlobal(params['id']!);
+    if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason ?? 'cannot promote' }); return; }
+    await emitCacheEvent('prompt_update', { promptId: params['id'] });
+    json(res, 200, { ok: true, logicalKey: result.logicalKey });
+  }, { auth: true, csrf: true });
+
   // ── Admin: Tenancy Realm Phase 2 — built-in default drift + one-click resync ──────────────
   // "Which built-in prompts have I customized, and did a product update change any of them?"
   // (GET /drift is registered above the /:id route so 'drift' is never read as a prompt id.)

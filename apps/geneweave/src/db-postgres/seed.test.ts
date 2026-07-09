@@ -31,6 +31,7 @@ import { SQLiteAdapter } from '../db-sqlite.js';
 import { pgSeedStore } from './seed.js';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
+import { buildTenantPromptFork } from '../chat-realm-prompt.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
 const home = process.env['HOME'] ?? '';
@@ -104,6 +105,33 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     }
   });
 
+  it('realm hierarchy (Phase 4): a real lineage + share blast radius resolve identically on both engines', async () => {
+    const { createSqlTenantHierarchy } = await import('@weaveintel/identity');
+    for (const [db, client] of [
+      [pg, pool as unknown as import('@weaveintel/realm').SqlClient],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [sq, { async query(t: string, p: unknown[] = []) { const s = (sq as any).d.prepare(t); return /^\s*(SELECT|PRAGMA|WITH)/i.test(t) ? { rows: s.all(...p) } : (s.run(...p), { rows: [] }); } }],
+    ] as const) {
+      const org = createSqlTenantHierarchy({ client, dialect: db === pg ? 'postgres' : 'sqlite', table: 'tenants', ensureSchema: false });
+      await org.create({ id: 'p4-acme', name: 'A' });
+      await org.create({ id: 'p4-emea', name: 'E', parentTenantId: 'p4-acme' });
+      await org.create({ id: 'p4-uk', name: 'U', parentTenantId: 'p4-emea' });
+
+      // The real lineage is root → self (depth 2 for uk).
+      const ctx = await db.realmContext('p4-uk');
+      expect(ctx.lineage.map((n) => n.tenantId)).toEqual(['p4-acme', 'p4-emea', 'p4-uk']);
+      expect(ctx.depth).toBe(2);
+
+      // EMEA forks a prompt + shares to subtree → blast radius reaches uk.
+      const g = (await db.listPrompts()).find((p) => (p.realm ?? 'global') === 'global')!;
+      const fork = buildTenantPromptFork(g, 'p4-emea', { template: 'shared', share_mode: 'subtree' });
+      await db.insertRealmPromptRow(fork);
+      const forkRow = (await db.listPrompts()).find((p) => p.owner_tenant_id === 'p4-emea')!;
+      const radius = await db.promptShareBlastRadius(forkRow.id, 'subtree');
+      expect('error' in radius ? [] : radius.inheriting).toContain('p4-uk');
+    }
+  });
+
   it('realm state overlay (Phase 3): disabling a built-in for a tenant behaves identically on both engines', async () => {
     const skill = (await pg.listEnabledSkills())[0]!.id;
     for (const db of [pg, sq]) {
@@ -137,11 +165,11 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
   it('realm columns (Phase 1): prompts + fragments are global-realm originals with identical content_hash across engines', async () => {
     for (const table of ['prompts', 'prompt_fragments']) {
       const { rows: pRows } = await pool.query(
-        `SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} ORDER BY logical_key`,
+        `SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} WHERE realm = 'global' ORDER BY logical_key`,
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sRows = (sq as any).d
-        .prepare(`SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} ORDER BY logical_key`)
+        .prepare(`SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} WHERE realm = 'global' ORDER BY logical_key`)
         .all() as Array<{ logical_key: string; realm: string; owner_tenant_id: string | null; content_hash: string }>;
 
       expect(pRows.length).toBe(sRows.length);

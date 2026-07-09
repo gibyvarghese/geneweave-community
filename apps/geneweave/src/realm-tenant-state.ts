@@ -10,11 +10,11 @@
  */
 import {
   createSqlStateStore, resolveState,
-  type SqlClient, type SqlDialect, type RealmStateRecord, type RealmStateOverlay, type ResolvedState, type RealmContext,
+  type SqlClient, type SqlDialect, type RealmStateRecord, type RealmStateOverlay, type ResolvedState,
 } from '@weaveintel/realm';
+import { buildTenantContext } from './realm-hierarchy.js';
 
 const STATE_TABLE = 'realm_tenant_state';
-const rootCtx = (tenantId: string): RealmContext => ({ tenantId, depth: 0, lineage: [{ tenantId, depth: 0 }] });
 const store = (client: SqlClient, dialect: SqlDialect) => createSqlStateStore({ client, dialect, table: STATE_TABLE });
 
 export async function setRealmState(client: SqlClient, dialect: SqlDialect, family: string, logicalKey: string, tenantId: string, patch: Partial<RealmStateOverlay>): Promise<RealmStateRecord> {
@@ -35,13 +35,17 @@ export async function listRealmStates(client: SqlClient, dialect: SqlDialect, fa
 export async function resolveRealmStates(client: SqlClient, dialect: SqlDialect, family: string, tenantId: string | null, logicalKeys: readonly string[]): Promise<Map<string, ResolvedState>> {
   const out = new Map<string, ResolvedState>();
   if (!tenantId || logicalKeys.length === 0) return out; // no tenant → everything inherits the shared default
-  const own = await store(client, dialect).listForTenant(family, tenantId);
-  const byKey = new Map(own.map((r) => [r.logicalKey, r]));
-  const ctx = rootCtx(tenantId);
+  // Phase 4: resolve against the REAL lineage so a parent org's overlay inherits down to this tenant.
+  const ctx = await buildTenantContext(client, dialect, tenantId);
+  const st = store(client, dialect);
+  // One pass per lineage tenant (depth is small) → overlays keyed by tenant, then per-field nearest-wins.
+  const byTenant = new Map<string, Map<string, RealmStateRecord>>();
+  for (const node of ctx.lineage) {
+    byTenant.set(node.tenantId, new Map((await st.listForTenant(family, node.tenantId)).map((r) => [r.logicalKey, r])));
+  }
   for (const k of logicalKeys) {
     const overlays = new Map<string, RealmStateOverlay>();
-    const o = byKey.get(k);
-    if (o) overlays.set(tenantId, o);
+    for (const node of ctx.lineage) { const o = byTenant.get(node.tenantId)?.get(k); if (o) overlays.set(node.tenantId, o); }
     out.set(k, resolveState(ctx, overlays));
   }
   return out;

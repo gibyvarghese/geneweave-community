@@ -6,6 +6,7 @@
 import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from './realm-tenant-state.js';
+import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from './realm-hierarchy.js';
 
 import { newUUIDv7 } from '@weaveintel/core';
 import { getModelCapabilityFlags } from '@weaveintel/routing';
@@ -1061,6 +1062,19 @@ export class SQLiteAdapter implements DatabaseAdapter {
   }
   async resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
     return resolveRealmStates(sqliteSqlClient(this.d), 'sqlite', family, tenantId, logicalKeys);
+  }
+
+  async realmContext(tenantId: string | null) {
+    return buildTenantContext(sqliteSqlClient(this.d), 'sqlite', tenantId);
+  }
+  async promptShareBlastRadius(promptId: string, shareMode: import('@weaveintel/realm').ShareMode) {
+    return promptBlastRadiusById(sqliteSqlClient(this.d), 'sqlite', promptId, shareMode);
+  }
+  async setPromptShareMode(promptId: string, shareMode: import('@weaveintel/realm').ShareMode) {
+    return setPromptShareMode(sqliteSqlClient(this.d), 'sqlite', promptId, shareMode);
+  }
+  async promotePromptToGlobal(promptId: string) {
+    return promotePromptForkToGlobal(sqliteSqlClient(this.d), 'sqlite', promptId);
   }
 
   async getPrompt(id: string): Promise<PromptRow | null> {
