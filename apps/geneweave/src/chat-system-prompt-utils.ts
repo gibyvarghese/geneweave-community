@@ -89,7 +89,9 @@ export async function resolveSystemPrompt(
     );
     // Tenancy Realm: prefer this tenant's own fork of the prompt (nearest-owner-wins) over the global
     // default. With no tenant, or no fork, this returns the base match untouched — fully backward-compat.
-    const effective = baseMatch ? resolveTenantEffectivePrompt(rows, baseMatch, tenantId) : undefined;
+    // Phase 4: resolve against the tenant's real lineage so a PARENT org's shared prompt fork wins too.
+    const realmCtx = baseMatch && tenantId ? await db.realmContext(tenantId) : undefined;
+    const effective = baseMatch ? resolveTenantEffectivePrompt(rows, baseMatch, tenantId, realmCtx) : undefined;
     const match = effective?.row;
     const realmProvenance = effective?.provenance;
     if (match) {

@@ -31,6 +31,7 @@ import { SQLiteAdapter } from '../db-sqlite.js';
 import { pgSeedStore } from './seed.js';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
+import { buildTenantPromptFork } from '../chat-realm-prompt.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
 const home = process.env['HOME'] ?? '';
@@ -104,14 +105,71 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     }
   });
 
+  it('realm hierarchy (Phase 4): a real lineage + share blast radius resolve identically on both engines', async () => {
+    const { createSqlTenantHierarchy } = await import('@weaveintel/identity');
+    for (const [db, client] of [
+      [pg, pool as unknown as import('@weaveintel/realm').SqlClient],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [sq, { async query(t: string, p: unknown[] = []) { const s = (sq as any).d.prepare(t); return /^\s*(SELECT|PRAGMA|WITH)/i.test(t) ? { rows: s.all(...p) } : (s.run(...p), { rows: [] }); } }],
+    ] as const) {
+      const org = createSqlTenantHierarchy({ client, dialect: db === pg ? 'postgres' : 'sqlite', table: 'tenants', ensureSchema: false });
+      await org.create({ id: 'p4-acme', name: 'A' });
+      await org.create({ id: 'p4-emea', name: 'E', parentTenantId: 'p4-acme' });
+      await org.create({ id: 'p4-uk', name: 'U', parentTenantId: 'p4-emea' });
+
+      // The real lineage is root → self (depth 2 for uk).
+      const ctx = await db.realmContext('p4-uk');
+      expect(ctx.lineage.map((n) => n.tenantId)).toEqual(['p4-acme', 'p4-emea', 'p4-uk']);
+      expect(ctx.depth).toBe(2);
+
+      // EMEA forks a prompt + shares to subtree → blast radius reaches uk.
+      const g = (await db.listPrompts()).find((p) => (p.realm ?? 'global') === 'global')!;
+      const fork = buildTenantPromptFork(g, 'p4-emea', { template: 'shared', share_mode: 'subtree' });
+      await db.insertRealmPromptRow(fork);
+      const forkRow = (await db.listPrompts()).find((p) => p.owner_tenant_id === 'p4-emea')!;
+      const radius = await db.promptShareBlastRadius(forkRow.id, 'subtree');
+      expect('error' in radius ? [] : radius.inheriting).toContain('p4-uk');
+    }
+  });
+
+  it('realm state overlay (Phase 3): disabling a built-in for a tenant behaves identically on both engines', async () => {
+    const skill = (await pg.listEnabledSkills())[0]!.id;
+    for (const db of [pg, sq]) {
+      await db.setRealmState('skills', skill, 'acme', { enabled: false });
+      await db.setRealmState('skills', skill, 'acme', { priority: 7 }); // merge, keep disabled
+      const acme = (await db.resolveRealmStates('skills', 'acme', [skill])).get(skill)!;
+      expect([acme.active, acme.priority]).toEqual([false, 7]);
+      expect((await db.resolveRealmStates('skills', 'globex', [skill])).get(skill)!.active).toBe(true); // isolation
+      await db.clearRealmState('skills', skill, 'acme');
+      expect((await db.resolveRealmStates('skills', 'acme', [skill])).get(skill)!.active).toBe(true);
+    }
+  });
+
+  it('realm versions (Phase 2): both engines record one baseline per built-in prompt and report every one in_sync', async () => {
+    // One realm_versions baseline per global prompt, identical count across engines.
+    const { rows: pv } = await pool.query(`SELECT count(*)::int AS c FROM realm_versions WHERE family='prompts'`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sv = (sq as any).d.prepare(`SELECT count(*) AS c FROM realm_versions WHERE family='prompts'`).get() as { c: number };
+    const globals = (await pg.listPrompts()).filter((p) => (p.realm ?? 'global') === 'global').length;
+    expect((pv[0] as { c: number }).c).toBe(globals);
+    expect(sv.c).toBe(globals);
+
+    // A fresh install is fully in sync on both engines (drift report).
+    const pgDrift = await pg.promptDriftReport();
+    const sqDrift = await sq.promptDriftReport();
+    expect(pgDrift.summary.customized + pgDrift.summary.stale + pgDrift.summary.diverged).toBe(0);
+    expect(sqDrift.summary).toEqual(pgDrift.summary);
+    expect(pgDrift.summary.in_sync).toBe(globals);
+  });
+
   it('realm columns (Phase 1): prompts + fragments are global-realm originals with identical content_hash across engines', async () => {
     for (const table of ['prompts', 'prompt_fragments']) {
       const { rows: pRows } = await pool.query(
-        `SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} ORDER BY logical_key`,
+        `SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} WHERE realm = 'global' ORDER BY logical_key`,
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sRows = (sq as any).d
-        .prepare(`SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} ORDER BY logical_key`)
+        .prepare(`SELECT logical_key, realm, owner_tenant_id, content_hash FROM ${table} WHERE realm = 'global' ORDER BY logical_key`)
         .all() as Array<{ logical_key: string; realm: string; owner_tenant_id: string | null; content_hash: string }>;
 
       expect(pRows.length).toBe(sRows.length);

@@ -26,6 +26,8 @@ import { stringifyPromptVariables } from '@weaveintel/prompts';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import { HARD_EXECUTION_GUARD_POLICY, SUPERVISOR_CODE_EXECUTION_POLICY } from '../chat-policies.js';
 import { realmContentHash, parseRealmSemantic } from '../migrations/m151-realm-columns.js';
+import { reconcilePromptRealm } from '../realm-prompt-drift.js';
+import type { SqlClient } from '@weaveintel/realm';
 import type { PgCtx } from '../db-postgres-ctx.js';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type {
@@ -2472,6 +2474,13 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       await ctx.query(`UPDATE prompt_fragments SET logical_key = COALESCE(NULLIF(key, ''), id) WHERE logical_key IS NULL OR logical_key = ''`);
       await backfillRealmContentHash(ctx, 'prompts', ['name', 'description', 'category', 'template', 'variables', 'model_compatibility', 'execution_defaults', 'framework']);
       await backfillRealmContentHash(ctx, 'prompt_fragments', ['name', 'description', 'category', 'content', 'variables']);
+
+      // ─── Tenancy Realm Phase 2 — drift baseline + seed-time reconcile (mirror of m152 + SQLite) ───
+      // realm_versions comes from POSTGRES_FULL_SCHEMA. Establish the baseline (origin_hash = content),
+      // then reconcile the shipped prompt defaults: record each as a version, adopt changed defaults the
+      // operator never touched, keep customized/diverged rows. Identical drift outcomes to SQLite.
+      await ctx.query(`UPDATE prompts SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      await reconcilePromptRealm(ctx as unknown as SqlClient, 'postgres', prompts);
     },
   };
 }

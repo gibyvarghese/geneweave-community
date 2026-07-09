@@ -23,6 +23,24 @@ export interface IPromptStore {
    * defaults to the global realm). Used to persist a tenant's copy-on-write fork of a global prompt.
    */
   insertRealmPromptRow(row: Omit<PromptRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm Phase 2: which built-in prompts are in_sync / customized / stale / diverged vs the shipped defaults. */
+  promptDriftReport(): Promise<import('../realm-prompt-drift.js').PromptDriftReport>;
+  /** Tenancy Realm Phase 2: take the shipped version for a customized/diverged built-in (re-baseline to in_sync). */
+  resyncPromptToPackage(promptId: string): Promise<{ ok: boolean; reason?: string }>;
+  // ── Tenancy Realm Phase 3: per-tenant state overlay (disable/reprioritise/pin a built-in, no fork) ──
+  setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>): Promise<import('@weaveintel/realm').RealmStateRecord>;
+  clearRealmState(family: string, logicalKey: string, tenantId: string): Promise<void>;
+  listRealmStates(family: string, tenantId: string): Promise<import('@weaveintel/realm').RealmStateRecord[]>;
+  resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]): Promise<Map<string, import('@weaveintel/realm').ResolvedState>>;
+  // ── Tenancy Realm Phase 4: real tenant-tree resolution + share down the tree + promote a fork up ──
+  /** The tenant's real lineage (root → self) so parent-shared forks + parent overlays resolve at depth. */
+  realmContext(tenantId: string | null): Promise<import('@weaveintel/realm').RealmContext>;
+  /** Preview who a share of this fork would reach (inheriting / shadowed / out-of-scope). */
+  promptShareBlastRadius(promptId: string, shareMode: import('@weaveintel/realm').ShareMode): Promise<import('@weaveintel/realm').BlastRadius | { error: string }>;
+  /** Flip a tenant fork's share mode (private | children | subtree). */
+  setPromptShareMode(promptId: string, shareMode: import('@weaveintel/realm').ShareMode): Promise<{ ok: boolean; reason?: string }>;
+  /** Promote a tenant fork to the shared global default (ProposeToRealm approve). */
+  promotePromptToGlobal(promptId: string): Promise<{ ok: boolean; reason?: string; logicalKey?: string }>;
 
   // Prompt Versions
   createPromptVersion(v: Omit<PromptVersionRow, 'created_at' | 'updated_at'>): Promise<void>;

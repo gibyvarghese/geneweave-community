@@ -209,10 +209,18 @@ export async function discoverSkillsForInput(
   // When absent, all selected skills are returned (backwards-compatible behaviour).
   scopeGuard?: ChatScopeGuard,
   scopeCtx?: ScopeContext,
+  // Tenancy Realm Phase 3: the tenant this chat runs for. When set, skills the tenant has disabled for
+  // itself (via the realm_tenant_state overlay) are dropped — no fork, just a per-tenant on/off switch.
+  tenantId?: string | null,
 ): Promise<{ matches: SkillMatch[]; toolNames: string[] }> {
   try {
-    const rows = await db.listEnabledSkills();
+    let rows = await db.listEnabledSkills();
     if (!rows.length) return { matches: [], toolNames: [] };
+    if (tenantId) {
+      const states = await db.resolveRealmStates('skills', tenantId, rows.map((r) => r.id));
+      rows = rows.filter((r) => states.get(r.id)?.active !== false);
+      if (!rows.length) return { matches: [], toolNames: [] };
+    }
 
     const registry = createSkillRegistry();
     for (const row of rows) {

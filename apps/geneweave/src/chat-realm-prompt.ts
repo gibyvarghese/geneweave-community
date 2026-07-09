@@ -112,6 +112,9 @@ export function resolveTenantEffectivePrompt(
   allRows: readonly PromptRow[],
   baseMatch: PromptRow,
   tenantId: string | null | undefined,
+  // Phase 4: the tenant's real lineage (root → self). When given, a PARENT org's shared prompt fork
+  // resolves for this tenant too. When omitted, a flat depth-0 context is used (own fork or global only).
+  ctx?: RealmContext,
 ): TenantEffectivePrompt {
   const logicalKey = baseMatch.logical_key ?? baseMatch.key ?? baseMatch.id;
   if (!tenantId || !logicalKey) {
@@ -126,7 +129,7 @@ export function resolveTenantEffectivePrompt(
   const hashById = new Map(candidates.map((r) => [r.id, r.content_hash ?? '']));
   const remoteHashOf = (originId: string): string | null => hashById.get(originId) ?? null;
 
-  const effective = resolveOne(records, logicalKey, rootContext(tenantId), remoteHashOf);
+  const effective = resolveOne(records, logicalKey, ctx ?? rootContext(tenantId), remoteHashOf);
   if (!effective) return { row: baseMatch, provenance: { kind: 'global' } };
 
   // EffectiveRecord spreads the row back out; recover the plain PromptRow to hand downstream.

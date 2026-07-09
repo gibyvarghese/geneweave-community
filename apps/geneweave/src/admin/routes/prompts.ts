@@ -54,6 +54,13 @@ export function registerAdminPromptRoutes(
     json(res, 200, { prompts });
   });
 
+  // Phase 2 drift report — registered BEFORE /:id so 'drift' isn't captured as an id.
+  router.get('/api/admin/prompts/drift', async (_req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const report = await db.promptDriftReport();
+    json(res, 200, report);
+  });
+
   router.get('/api/admin/prompts/:id', async (_req, res, params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
     const prompt = await db.getPrompt(params['id']!);
@@ -195,6 +202,101 @@ export function registerAdminPromptRoutes(
     await db.deletePrompt(fork.id);
     await emitCacheEvent('prompt_update', { promptId: fork.id });
     json(res, 200, { ok: true, reverted: fork.id });
+  }, { auth: true, csrf: true });
+
+  // ── Admin: Tenancy Realm Phase 4 — share a fork down the tree, and promote one up ─────────
+  const SHARE_MODES = new Set(['private', 'children', 'subtree']);
+
+  // Preview who a share would reach BEFORE committing (blast radius).
+  router.get('/api/admin/prompts/:id/blast-radius', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const shareMode = url.searchParams.get('shareMode') ?? 'subtree';
+    if (!SHARE_MODES.has(shareMode)) { json(res, 400, { error: 'shareMode must be private | children | subtree' }); return; }
+    const result = await db.promptShareBlastRadius(params['id']!, shareMode as 'private' | 'children' | 'subtree');
+    if ('error' in result) { json(res, result.error === 'not found' ? 404 : 400, { error: result.error }); return; }
+    json(res, 200, { blastRadius: result });
+  });
+
+  // Share (or unshare) a tenant fork down its part of the org tree.
+  router.post('/api/admin/prompts/:id/share', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const shareMode = body['shareMode'];
+    if (typeof shareMode !== 'string' || !SHARE_MODES.has(shareMode)) { json(res, 400, { error: 'shareMode must be private | children | subtree' }); return; }
+    const result = await db.setPromptShareMode(params['id']!, shareMode as 'private' | 'children' | 'subtree');
+    if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason ?? 'cannot share' }); return; }
+    await emitCacheEvent('prompt_update', { promptId: params['id'] });
+    json(res, 200, { ok: true, shareMode });
+  }, { auth: true, csrf: true });
+
+  // Promote a tenant fork to the shared global default (ProposeToRealm approve).
+  router.post('/api/admin/prompts/:id/promote', async (_req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const result = await db.promotePromptToGlobal(params['id']!);
+    if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason ?? 'cannot promote' }); return; }
+    await emitCacheEvent('prompt_update', { promptId: params['id'] });
+    json(res, 200, { ok: true, logicalKey: result.logicalKey });
+  }, { auth: true, csrf: true });
+
+  // ── Admin: Tenancy Realm Phase 2 — built-in default drift + one-click resync ──────────────
+  // "Which built-in prompts have I customized, and did a product update change any of them?"
+  // (GET /drift is registered above the /:id route so 'drift' is never read as a prompt id.)
+
+  // Take the shipped version for a customized/diverged built-in → back to in_sync.
+  router.post('/api/admin/prompts/:id/resync', async (_req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const result = await db.resyncPromptToPackage(params['id']!);
+    if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason ?? 'cannot resync' }); return; }
+    await emitCacheEvent('prompt_update', { promptId: params['id'] });
+    const prompt = await db.getPrompt(params['id']!);
+    json(res, 200, { ok: true, prompt });
+  }, { auth: true, csrf: true });
+
+  // ── Admin: Tenancy Realm Phase 3 — per-tenant state overlay (SetState) ─────────────────────
+  // Turn a shared built-in (a skill, a prompt) off/on for ONE tenant, reprioritise it, or pin a
+  // version — WITHOUT forking it. `enabled: false` disables; null clears that field.
+
+  const REALM_FAMILIES = new Set(['skills', 'prompts', 'guardrails', 'worker_agents', 'tool_policies']);
+
+  // List a tenant's overlays in a family.
+  router.get('/api/admin/realm-state', async (req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const family = url.searchParams.get('family'); const tenantId = url.searchParams.get('tenantId');
+    if (!family || !tenantId) { json(res, 400, { error: 'family and tenantId required' }); return; }
+    json(res, 200, { states: await db.listRealmStates(family, tenantId) });
+  });
+
+  // Set/patch one overlay. Body: { family, logicalKey, tenantId, enabled?, priority?, pinnedVersion? }.
+  router.put('/api/admin/realm-state', async (req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const family = body['family']; const logicalKey = body['logicalKey']; const tenantId = body['tenantId'];
+    if (typeof family !== 'string' || !REALM_FAMILIES.has(family)) { json(res, 400, { error: `family must be one of ${[...REALM_FAMILIES].join(', ')}` }); return; }
+    if (typeof logicalKey !== 'string' || !logicalKey) { json(res, 400, { error: 'logicalKey required' }); return; }
+    if (typeof tenantId !== 'string' || !tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    const patch: Record<string, unknown> = {};
+    if (body['enabled'] !== undefined) patch['enabled'] = body['enabled'] === null ? null : Boolean(body['enabled']);
+    if (body['priority'] !== undefined) patch['priority'] = body['priority'] === null ? null : Number(body['priority']);
+    if (body['pinnedVersion'] !== undefined) patch['pinnedVersion'] = body['pinnedVersion'] === null ? null : Number(body['pinnedVersion']);
+    const record = await db.setRealmState(family, logicalKey, tenantId, patch);
+    await emitCacheEvent('prompt_update', { promptId: logicalKey });
+    json(res, 200, { state: record });
+  }, { auth: true, csrf: true });
+
+  // Clear a tenant's overlay for a key (fall back to the shared default).
+  router.del('/api/admin/realm-state', async (req, res, _params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const family = url.searchParams.get('family'); const logicalKey = url.searchParams.get('logicalKey'); const tenantId = url.searchParams.get('tenantId');
+    if (!family || !logicalKey || !tenantId) { json(res, 400, { error: 'family, logicalKey and tenantId required' }); return; }
+    await db.clearRealmState(family, logicalKey, tenantId);
+    json(res, 200, { ok: true });
   }, { auth: true, csrf: true });
 
   // ── Admin: Prompt Frameworks (Phase 2) ────────────────────

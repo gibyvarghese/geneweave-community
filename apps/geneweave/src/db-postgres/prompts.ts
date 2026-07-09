@@ -11,6 +11,10 @@
  * value is a bound parameter.
  */
 import type { PgCtx } from '../db-postgres-ctx.js';
+import { promptDriftReport, resyncPromptToPackage } from '../realm-prompt-drift.js';
+import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from '../realm-tenant-state.js';
+import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from '../realm-hierarchy.js';
+import type { SqlClient } from '@weaveintel/realm';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type { ModelPricingRow } from '../db-types/routing.js';
 import type {
@@ -137,6 +141,40 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
           p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
         ],
       );
+    },
+
+    async promptDriftReport() {
+      return promptDriftReport(ctx as unknown as SqlClient, 'postgres');
+    },
+
+    async resyncPromptToPackage(promptId: string) {
+      return resyncPromptToPackage(ctx as unknown as SqlClient, 'postgres', promptId);
+    },
+
+    async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
+      return setRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId, patch);
+    },
+    async clearRealmState(family: string, logicalKey: string, tenantId: string) {
+      return clearRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId);
+    },
+    async listRealmStates(family: string, tenantId: string) {
+      return listRealmStates(ctx as unknown as SqlClient, 'postgres', family, tenantId);
+    },
+    async resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
+      return resolveRealmStates(ctx as unknown as SqlClient, 'postgres', family, tenantId, logicalKeys);
+    },
+
+    async realmContext(tenantId: string | null) {
+      return buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+    },
+    async promptShareBlastRadius(promptId: string, shareMode: import('@weaveintel/realm').ShareMode) {
+      return promptBlastRadiusById(ctx as unknown as SqlClient, 'postgres', promptId, shareMode);
+    },
+    async setPromptShareMode(promptId: string, shareMode: import('@weaveintel/realm').ShareMode) {
+      return setPromptShareMode(ctx as unknown as SqlClient, 'postgres', promptId, shareMode);
+    },
+    async promotePromptToGlobal(promptId: string) {
+      return promotePromptForkToGlobal(ctx as unknown as SqlClient, 'postgres', promptId);
     },
 
     async getPrompt(id: string): Promise<PromptRow | null> {
