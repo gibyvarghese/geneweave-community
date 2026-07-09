@@ -4,6 +4,10 @@ import type { WorkflowRunRow, WorkflowCheckpointRow, CapabilityPolicyBindingRow 
 export interface IAgentStore {
   // Worker agents
   createWorkerAgent(w: Omit<WorkerAgentRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm: insert a worker row INCLUDING its realm columns (createWorkerAgent omits them). For a tenant fork. */
+  insertRealmWorkerAgentRow(w: Omit<WorkerAgentRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm: the effective worker list for a tenant — its own forks + shared ancestors + globals, nearest-owner-wins, canonical names restored. */
+  resolveTenantEffectiveWorkerAgents(tenantId: string | null): Promise<WorkerAgentRow[]>;
   getWorkerAgent(id: string): Promise<WorkerAgentRow | null>;
   listWorkerAgents(): Promise<WorkerAgentRow[]>;
   listEnabledWorkerAgents(): Promise<WorkerAgentRow[]>;

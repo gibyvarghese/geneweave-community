@@ -32,6 +32,9 @@ import { pgSeedStore } from './seed.js';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import { buildTenantPromptFork } from '../chat-realm-prompt.js';
+import { buildTenantSkillFork, resolveTenantEffectiveSkills } from '../skill-realm.js';
+import { buildTenantWorkerAgentFork, workerContentHash } from '../worker-agent-realm.js';
+import { buildTenantGuardrailFork, guardrailContentHash } from '../guardrail-realm.js';
 import { buildTenantToolPolicyFork, toolPolicyContentHash } from '../tool-policy-realm.js';
 import type { ToolPolicyRow } from '../db-types/tools.js';
 
@@ -104,6 +107,93 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     // The four tier presets are present on both.
     for (const tier of ['economy', 'balanced', 'performance', 'max']) {
       expect(sortedKeys(p, (r) => r.key)).toContain(tier);
+    }
+  });
+
+  it('realm columns on skills (m154): built-ins are global originals with identical content_hash across engines, and a fork resolves per tenant', async () => {
+    // NOTE: skill COUNTS differ by design (SQLite pre-seeds ~17 via bootstrap migrations; the PG seed
+    // populates fewer from empty — see the parity-scope note above). So compare content_hash only for the
+    // logical keys present on BOTH engines, and require the built-in set to overlap.
+    const { rows: pRows } = await pool.query(`SELECT logical_key, content_hash FROM skills WHERE realm='global'`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sRows = (sq as any).d.prepare(`SELECT logical_key, content_hash FROM skills WHERE realm='global'`).all() as Array<{ logical_key: string; content_hash: string }>;
+    const pByKey = new Map((pRows as Array<{ logical_key: string; content_hash: string }>).map((r) => [r.logical_key, r.content_hash]));
+    const shared = sRows.filter((s) => pByKey.has(s.logical_key));
+    expect(shared.length).toBeGreaterThan(0); // the two engines share at least the core built-ins
+    for (const s of shared) expect(pByKey.get(s.logical_key), `skill hash mismatch ${s.logical_key}`).toBe(s.content_hash);
+
+    // A fork resolves for its tenant on both engines; another tenant gets the global.
+    for (const db of [pg, sq]) {
+      const g = (await db.listSkills()).find((x) => (x.realm ?? 'global') === 'global')!;
+      await db.insertRealmSkillRow(buildTenantSkillFork(g, 'sk-acme', { instructions: 'ACME SKILL EDIT' }));
+      const all = await db.listSkills();
+      const forAcme = resolveTenantEffectiveSkills(all, 'sk-acme').find((x) => (x.logical_key ?? x.id) === (g.logical_key ?? g.id))!;
+      const forGlobex = resolveTenantEffectiveSkills(all, 'sk-globex').find((x) => (x.logical_key ?? x.id) === (g.logical_key ?? g.id))!;
+      expect(forAcme.instructions).toBe('ACME SKILL EDIT');
+      expect(forGlobex.instructions).not.toBe('ACME SKILL EDIT');
+    }
+  });
+
+  it('realm columns on worker_agents (m155): built-ins are global originals whose backfilled content_hash matches the canonical JS hash on BOTH engines, and a fork resolves per tenant with UNIQUE(name) intact', async () => {
+    // The two backends seed DISJOINT worker sets (SQLite pre-seeds weave_*/sv-* via bootstrap
+    // migrations; the PG seed block seeds code_executor/researcher/analyst/writer/statsnz from an
+    // empty baseline — see PARITY SCOPE). Cross-engine set-equality is therefore meaningless here.
+    // The real parity claim is the HASH ALGORITHM: each engine's backfill (PG SQL-path vs SQLite
+    // JS-path) must produce the SAME canonical content_hash for the SAME row content. Assert that
+    // directly — every seeded global's stored content_hash equals workerContentHash recomputed in JS.
+    for (const db of [pg, sq]) {
+      const globals = (await db.listWorkerAgents()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(globals.length).toBeGreaterThan(0);
+      for (const g of globals) {
+        expect(g.logical_key, `logical_key set for ${g.name}`).toBe(g.name);
+        expect(g.content_hash?.startsWith('sha256:'), `sha256 content_hash for ${g.name}`).toBe(true);
+        expect(g.content_hash, `backfill == canonical JS hash for ${g.name}`).toBe(workerContentHash(g));
+        expect(g.origin_hash, `origin_hash baseline for ${g.name}`).toBe(g.content_hash);
+      }
+    }
+
+    // A fork (tenant-scoped name) resolves for its tenant on both engines with the canonical name restored.
+    for (const db of [pg, sq]) {
+      const g = (await db.listWorkerAgents()).find((x) => (x.realm ?? 'global') === 'global')!;
+      await db.insertRealmWorkerAgentRow(buildTenantWorkerAgentFork(g, 'wa-acme', { system_prompt: 'ACME WORKER EDIT' }));
+      const forAcme = (await db.resolveTenantEffectiveWorkerAgents('wa-acme')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forAcme.system_prompt).toBe('ACME WORKER EDIT');
+      expect(forAcme.name).toBe(g.name); // canonical name restored
+      const forGlobex = (await db.resolveTenantEffectiveWorkerAgents('wa-globex')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forGlobex.system_prompt).not.toBe('ACME WORKER EDIT');
+    }
+  });
+
+  it('realm columns on guardrails (m156): built-ins are global originals whose backfilled content_hash matches the canonical JS hash on BOTH engines, and a fork resolves per tenant', async () => {
+    // The real parity claim is the HASH ALGORITHM: each engine's backfill (PG SQL-path vs SQLite
+    // JS-path) must produce the SAME canonical content_hash for the SAME policy content.
+    for (const db of [pg, sq]) {
+      const globals = (await db.listGuardrails()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(globals.length).toBeGreaterThan(0);
+      for (const g of globals) {
+        expect(g.logical_key, `logical_key set for ${g.name}`).toBe(g.name);
+        expect(g.content_hash?.startsWith('sha256:'), `sha256 content_hash for ${g.name}`).toBe(true);
+        expect(g.content_hash, `backfill == canonical JS hash for ${g.name}`).toBe(guardrailContentHash(g));
+        expect(g.origin_hash, `origin_hash baseline for ${g.name}`).toBe(g.content_hash);
+      }
+    }
+    // Where the two engines seed the SAME guardrail (shared logical_key), the content_hash matches byte-for-byte.
+    const pGlobals = (await pg.listGuardrails()).filter((x) => (x.realm ?? 'global') === 'global');
+    const sByKey = new Map((await sq.listGuardrails()).filter((x) => (x.realm ?? 'global') === 'global').map((g) => [g.logical_key ?? g.name, g.content_hash]));
+    const sharedG = pGlobals.filter((g) => sByKey.has(g.logical_key ?? g.name));
+    expect(sharedG.length).toBeGreaterThan(0);
+    for (const g of sharedG) expect(sByKey.get(g.logical_key ?? g.name), `cross-engine hash ${g.name}`).toBe(g.content_hash);
+
+    // A fork resolves for its tenant on both engines; other tenants keep the global.
+    for (const db of [pg, sq]) {
+      const g = (await db.listGuardrails()).find((x) => (x.realm ?? 'global') === 'global')!;
+      const cfg = JSON.stringify({ ...(g.config ? JSON.parse(g.config) : {}), tenantMarker: 'ACME_GR_EDIT' });
+      await db.insertRealmGuardrailRow(buildTenantGuardrailFork(g, 'gr-acme', { config: cfg }));
+      const forAcme = (await db.resolveTenantEffectiveGuardrails('gr-acme')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forAcme.config).toContain('ACME_GR_EDIT');
+      expect(forAcme.name).toBe(g.name);
+      const forGlobex = (await db.resolveTenantEffectiveGuardrails('gr-globex')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forGlobex.config ?? '').not.toContain('ACME_GR_EDIT');
     }
   });
 

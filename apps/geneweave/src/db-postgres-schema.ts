@@ -881,6 +881,14 @@ CREATE TABLE IF NOT EXISTS "guardrails" (
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "judge_model" TEXT,
   "compliance_framework" TEXT,
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
   PRIMARY KEY ("id")
 );
 
@@ -3059,6 +3067,14 @@ CREATE TABLE IF NOT EXISTS "skills" (
   "trust" BIGINT NOT NULL DEFAULT 0,
   "input_modalities" TEXT NOT NULL DEFAULT '["text"]',
   "trust_tier" BIGINT NOT NULL DEFAULT 1,
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
   PRIMARY KEY ("id")
 );
 
@@ -4047,6 +4063,14 @@ CREATE TABLE IF NOT EXISTS "worker_agents" (
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "agentic_scope" TEXT NOT NULL DEFAULT 'system',
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
   PRIMARY KEY ("id"),
   FOREIGN KEY ("task_contract_id") REFERENCES "task_contracts" ("id")
 );

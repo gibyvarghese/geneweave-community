@@ -14,6 +14,9 @@
  */
 import type { PgCtx } from '../db-postgres-ctx.js';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
+import type { SqlClient } from '@weaveintel/realm';
+import { buildTenantContext } from '../realm-hierarchy.js';
+import { resolveTenantEffectiveGuardrails as resolveEffectiveGuardrails } from '../guardrail-realm.js';
 import type {
   GuardrailRow,
   GuardrailRevisionRow,
@@ -42,6 +45,27 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
         [g.id, g.name, g.description ?? null, g.type, g.stage, g.config ?? null, g.priority, g.enabled,
           g.trigger_conditions ?? null, g.trigger_description ?? null],
       );
+    },
+
+    async insertRealmGuardrailRow(g: Omit<GuardrailRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO guardrails (id, name, description, type, stage, config, priority, enabled, trigger_conditions, trigger_description, judge_model, compliance_framework, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+        [
+          g.id, g.name, g.description ?? null, g.type, g.stage, g.config ?? null, g.priority, g.enabled,
+          g.trigger_conditions ?? null, g.trigger_description ?? null, g.judge_model ?? null, g.compliance_framework ?? null,
+          g.realm ?? 'tenant', g.owner_tenant_id ?? null, g.logical_key ?? null, g.origin_id ?? null,
+          g.origin_hash ?? null, g.content_hash ?? '', g.track_mode ?? 'pin', g.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectiveGuardrails(tenantId: string | null): Promise<GuardrailRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM guardrails ORDER BY priority DESC, name COLLATE "C" ASC', []);
+      const all = rows as unknown as GuardrailRow[];
+      if (!tenantId) return all.filter((g) => (g.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveGuardrails(all, tenantId, context);
     },
 
     async getGuardrail(id: string): Promise<GuardrailRow | null> {

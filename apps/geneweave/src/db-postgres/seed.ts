@@ -2482,6 +2482,21 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       await ctx.query(`UPDATE prompts SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
       await reconcilePromptRealm(ctx as unknown as SqlClient, 'postgres', prompts);
 
+      // ─── Tenancy Realm — realm columns on skills (mirror of m154 + SQLite) ───
+      // Classify built-in skills as global-realm originals so a tenant can fork one. logical_key = id.
+      await ctx.query(`UPDATE skills SET logical_key = id WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'skills', ['name', 'description', 'category', 'trigger_patterns', 'instructions', 'tool_names', 'examples', 'tags', 'domain_sections', 'execution_contract']);
+      await ctx.query(`UPDATE skills SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      // ─── Tenancy Realm — realm columns on worker_agents (mirror of m155 + SQLite) ───
+      // Classify built-in workers as global-realm originals so a tenant can fork one. logical_key = name.
+      await ctx.query(`UPDATE worker_agents SET logical_key = name WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'worker_agents', ['display_name', 'job_profile', 'description', 'system_prompt', 'tool_names', 'persona', 'trigger_patterns', 'task_contract_id', 'category']);
+      await ctx.query(`UPDATE worker_agents SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      // ─── Tenancy Realm — realm columns on guardrails (mirror of m156 + SQLite) ───
+      // Classify built-in guardrails as global-realm originals so a tenant can fork one. logical_key = name.
+      await ctx.query(`UPDATE guardrails SET logical_key = name WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'guardrails', ['description', 'type', 'stage', 'config', 'trigger_conditions', 'trigger_description', 'judge_model', 'compliance_framework']);
+      await ctx.query(`UPDATE guardrails SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
       // ─── Tenancy Realm — realm columns on tool_policies (mirror of m157 + SQLite) ───
       // Classify any tool policies as global-realm originals so a tenant can fork one. logical_key = key.
       // (PG seeds no tool_policies today — this is a no-op safety net for installs that add them.)
