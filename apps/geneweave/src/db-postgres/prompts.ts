@@ -14,6 +14,7 @@ import type { PgCtx } from '../db-postgres-ctx.js';
 import { promptDriftReport, resyncPromptToPackage } from '../realm-prompt-drift.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from '../realm-tenant-state.js';
 import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from '../realm-hierarchy.js';
+import { resolveTenantEffectivePromptStrategies as resolveEffectiveStrategies, resolveTenantEffectivePromptContracts as resolveEffectiveContracts, resolveTenantEffectivePromptFrameworks as resolveEffectiveFrameworks } from '../prompt-catalog-realm.js';
 import type { SqlClient } from '@weaveintel/realm';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type { ModelPricingRow } from '../db-types/routing.js';
@@ -513,6 +514,26 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return (rows[0] as PromptFrameworkRow | undefined) ?? null;
     },
 
+    async insertRealmPromptFrameworkRow(f: Omit<PromptFrameworkRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO prompt_frameworks (id, key, name, description, sections, section_separator, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [
+          f.id, f.key, f.name, f.description ?? null, f.sections, f.section_separator, f.enabled,
+          f.realm ?? 'tenant', f.owner_tenant_id ?? null, f.logical_key ?? null, f.origin_id ?? null,
+          f.origin_hash ?? null, f.content_hash ?? '', f.track_mode ?? 'pin', f.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectivePromptFrameworks(tenantId: string | null): Promise<PromptFrameworkRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM prompt_frameworks ORDER BY key COLLATE "C" ASC', []);
+      const all = rows as unknown as PromptFrameworkRow[];
+      if (!tenantId) return all.filter((r) => (r.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveFrameworks(all, tenantId, context);
+    },
+
     async listPromptFrameworks(): Promise<PromptFrameworkRow[]> {
       const { rows } = await ctx.query('SELECT * FROM prompt_frameworks ORDER BY name COLLATE "C" ASC', []);
       return rows as unknown as PromptFrameworkRow[];
@@ -593,6 +614,26 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return (rows[0] as PromptContractRow | undefined) ?? null;
     },
 
+    async insertRealmPromptContractRow(c: Omit<PromptContractRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO prompt_contracts (id, key, name, description, contract_type, schema, config, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [
+          c.id, c.key, c.name, c.description ?? null, c.contract_type, c.schema ?? null, c.config, c.enabled,
+          c.realm ?? 'tenant', c.owner_tenant_id ?? null, c.logical_key ?? null, c.origin_id ?? null,
+          c.origin_hash ?? null, c.content_hash ?? '', c.track_mode ?? 'pin', c.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectivePromptContracts(tenantId: string | null): Promise<PromptContractRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM prompt_contracts ORDER BY key COLLATE "C" ASC', []);
+      const all = rows as unknown as PromptContractRow[];
+      if (!tenantId) return all.filter((r) => (r.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveContracts(all, tenantId, context);
+    },
+
     async listPromptContracts(): Promise<PromptContractRow[]> {
       const { rows } = await ctx.query('SELECT * FROM prompt_contracts ORDER BY name COLLATE "C" ASC', []);
       return rows as unknown as PromptContractRow[];
@@ -631,6 +672,26 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     async getPromptStrategyByKey(key: string): Promise<PromptStrategyRow | null> {
       const { rows } = await ctx.query('SELECT * FROM prompt_strategies WHERE key = $1', [key]);
       return (rows[0] as PromptStrategyRow | undefined) ?? null;
+    },
+
+    async insertRealmPromptStrategyRow(s: Omit<PromptStrategyRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO prompt_strategies (id, key, name, description, instruction_prefix, instruction_suffix, config, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+        [
+          s.id, s.key, s.name, s.description ?? null, s.instruction_prefix ?? null, s.instruction_suffix ?? null, s.config, s.enabled,
+          s.realm ?? 'tenant', s.owner_tenant_id ?? null, s.logical_key ?? null, s.origin_id ?? null,
+          s.origin_hash ?? null, s.content_hash ?? '', s.track_mode ?? 'pin', s.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectivePromptStrategies(tenantId: string | null): Promise<PromptStrategyRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM prompt_strategies ORDER BY key COLLATE "C" ASC', []);
+      const all = rows as unknown as PromptStrategyRow[];
+      if (!tenantId) return all.filter((r) => (r.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveStrategies(all, tenantId, context);
     },
 
     async listPromptStrategies(): Promise<PromptStrategyRow[]> {

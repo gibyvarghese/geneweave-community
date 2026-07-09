@@ -28,6 +28,9 @@ import {
 } from '../api/admin-route-helpers.js';
 import type { RouterLike } from '../api/types.js';
 import { buildTenantPromptFork, resolveTenantEffectivePrompt } from '../../chat-realm-prompt.js';
+import {
+  buildTenantPromptStrategyFork, buildTenantPromptContractFork, buildTenantPromptFrameworkFork,
+} from '../../prompt-catalog-realm.js';
 
 export function registerAdminPromptRoutes(
   router: RouterLike,
@@ -301,10 +304,11 @@ export function registerAdminPromptRoutes(
 
   // ── Admin: Prompt Frameworks (Phase 2) ────────────────────
 
-  router.get('/api/admin/prompt-frameworks', async (_req, res, _params, auth) => {
+  router.get('/api/admin/prompt-frameworks', async (req, res, _params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
-    const frameworks = await db.listPromptFrameworks();
-    json(res, 200, { frameworks });
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const frameworks = tenantId ? await db.resolveTenantEffectivePromptFrameworks(tenantId) : await db.listPromptFrameworks();
+    json(res, 200, { frameworks, ...(tenantId ? { tenantId } : {}) });
   });
 
   router.get('/api/admin/prompt-frameworks/:id', async (_req, res, params, auth) => {
@@ -425,10 +429,11 @@ export function registerAdminPromptRoutes(
 
   // ── Admin: Prompt Contracts ────────────────────────────────
 
-  router.get('/api/admin/prompt-contracts', async (_req, res, _params, auth) => {
+  router.get('/api/admin/prompt-contracts', async (req, res, _params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
-    const contracts = await db.listPromptContracts();
-    json(res, 200, { contracts });
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const contracts = tenantId ? await db.resolveTenantEffectivePromptContracts(tenantId) : await db.listPromptContracts();
+    json(res, 200, { contracts, ...(tenantId ? { tenantId } : {}) });
   });
 
   router.get('/api/admin/prompt-contracts/:id', async (_req, res, params, auth) => {
@@ -487,10 +492,11 @@ export function registerAdminPromptRoutes(
 
   // ── Admin: Prompt Strategies (Phase 4) ───────────────────
 
-  router.get('/api/admin/prompt-strategies', async (_req, res, _params, auth) => {
+  router.get('/api/admin/prompt-strategies', async (req, res, _params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
-    const strategies = await db.listPromptStrategies();
-    json(res, 200, { strategies });
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const strategies = tenantId ? await db.resolveTenantEffectivePromptStrategies(tenantId) : await db.listPromptStrategies();
+    json(res, 200, { strategies, ...(tenantId ? { tenantId } : {}) });
   });
 
   router.get('/api/admin/prompt-strategies/:id', async (_req, res, params, auth) => {
@@ -557,6 +563,99 @@ export function registerAdminPromptRoutes(
     await db.deletePromptStrategy(params['id']!);
     json(res, 200, { ok: true });
   }, { auth: true, csrf: true });
+
+  // ── Admin: Tenancy Realm (m159) — per-tenant customization of the prompt catalog (content fork) ──
+  // One generic registrar drives all three keyed catalog tables (strategies/contracts/frameworks):
+  // GET :id/realm (provenance) + POST :id/customize (fork) + DELETE :id/customize (revert).
+  interface KeyedRealmRow { id: string; key: string; realm?: string; owner_tenant_id?: string | null; logical_key?: string | null }
+  function registerCatalogRealmRoutes<Row extends KeyedRealmRow>(cfg: {
+    base: string; singular: string;
+    getById: (id: string) => Promise<Row | null>;
+    listAll: () => Promise<Row[]>;
+    resolveEffective: (tenantId: string) => Promise<Row[]>;
+    insertFork: (row: Omit<Row, 'created_at' | 'updated_at'>) => Promise<void>;
+    deleteById: (id: string) => Promise<void>;
+    buildFork: (global: Row, tenantId: string, overrides: Record<string, unknown>) => Omit<Row, 'created_at' | 'updated_at'>;
+    overrideKeys: readonly string[];
+    jsonKeys: ReadonlySet<string>;
+  }): void {
+    const logicalOf = (r: KeyedRealmRow): string => r.logical_key ?? r.key;
+
+    router.get(`/api/admin/${cfg.base}/:id/realm`, async (req, res, params, auth) => {
+      if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+      const base = await cfg.getById(params['id']!);
+      if (!base) { json(res, 404, { error: `${cfg.singular} not found` }); return; }
+      const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+      const effective = tenantId
+        ? (await cfg.resolveEffective(tenantId)).find((r) => logicalOf(r) === logicalOf(base)) ?? base
+        : base;
+      const kind = effective.realm === 'tenant' ? (effective.owner_tenant_id === tenantId ? 'own_override' : 'inherited') : 'global';
+      json(res, 200, { effective, provenance: { kind }, tenantId });
+    });
+
+    router.post(`/api/admin/${cfg.base}/:id/customize`, async (req, res, params, auth) => {
+      if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+      const global = await cfg.getById(params['id']!);
+      if (!global) { json(res, 404, { error: `${cfg.singular} not found` }); return; }
+      if (global.realm === 'tenant') { json(res, 400, { error: `Can only customize a global ${cfg.singular}, not an existing tenant copy` }); return; }
+      const raw = await readBody(req);
+      let body: Record<string, unknown>;
+      try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+      const tenantId = body['tenantId'];
+      if (typeof tenantId !== 'string' || !tenantId.trim()) { json(res, 400, { error: 'tenantId required' }); return; }
+      const overrides: Record<string, unknown> = {};
+      for (const k of cfg.overrideKeys) {
+        if (body[k] === undefined) continue;
+        overrides[k] = (cfg.jsonKeys.has(k) && body[k] !== null && typeof body[k] === 'object') ? JSON.stringify(body[k]) : body[k];
+      }
+      const existing = (await cfg.listAll()).find((r) => r.realm === 'tenant' && r.owner_tenant_id === tenantId && logicalOf(r) === logicalOf(global));
+      if (existing) await cfg.deleteById(existing.id);
+      const fork = cfg.buildFork(global, tenantId, overrides);
+      await cfg.insertFork(fork);
+      const saved = await cfg.getById((fork as unknown as { id: string }).id);
+      json(res, 201, { fork: saved, replacedExisting: Boolean(existing) });
+    }, { auth: true, csrf: true });
+
+    router.del(`/api/admin/${cfg.base}/:id/customize`, async (req, res, params, auth) => {
+      if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+      const global = await cfg.getById(params['id']!);
+      if (!global) { json(res, 404, { error: `${cfg.singular} not found` }); return; }
+      const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+      if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+      const fork = (await cfg.listAll()).find((r) => r.realm === 'tenant' && r.owner_tenant_id === tenantId && logicalOf(r) === logicalOf(global));
+      if (!fork) { json(res, 404, { error: 'No customization for this tenant' }); return; }
+      await cfg.deleteById(fork.id);
+      json(res, 200, { ok: true, reverted: fork.id });
+    }, { auth: true, csrf: true });
+  }
+
+  registerCatalogRealmRoutes({
+    base: 'prompt-strategies', singular: 'Prompt strategy',
+    getById: (id) => db.getPromptStrategy(id), listAll: () => db.listPromptStrategies(),
+    resolveEffective: (t) => db.resolveTenantEffectivePromptStrategies(t),
+    insertFork: (r) => db.insertRealmPromptStrategyRow(r), deleteById: (id) => db.deletePromptStrategy(id),
+    buildFork: buildTenantPromptStrategyFork,
+    overrideKeys: ['name', 'description', 'instruction_prefix', 'instruction_suffix', 'config', 'share_mode'],
+    jsonKeys: new Set(['config']),
+  });
+  registerCatalogRealmRoutes({
+    base: 'prompt-contracts', singular: 'Prompt contract',
+    getById: (id) => db.getPromptContract(id), listAll: () => db.listPromptContracts(),
+    resolveEffective: (t) => db.resolveTenantEffectivePromptContracts(t),
+    insertFork: (r) => db.insertRealmPromptContractRow(r), deleteById: (id) => db.deletePromptContract(id),
+    buildFork: buildTenantPromptContractFork,
+    overrideKeys: ['name', 'description', 'contract_type', 'schema', 'config', 'share_mode'],
+    jsonKeys: new Set(['schema', 'config']),
+  });
+  registerCatalogRealmRoutes({
+    base: 'prompt-frameworks', singular: 'Prompt framework',
+    getById: (id) => db.getPromptFramework(id), listAll: () => db.listPromptFrameworks(),
+    resolveEffective: (t) => db.resolveTenantEffectivePromptFrameworks(t),
+    insertFork: (r) => db.insertRealmPromptFrameworkRow(r), deleteById: (id) => db.deletePromptFramework(id),
+    buildFork: buildTenantPromptFrameworkFork,
+    overrideKeys: ['name', 'description', 'sections', 'section_separator', 'share_mode'],
+    jsonKeys: new Set(['sections']),
+  });
 
   // ── Admin: Prompt Versions (Phase 5) ─────────────────────
 

@@ -90,6 +90,10 @@ export interface IPromptStore {
   listPromptFrameworks(): Promise<PromptFrameworkRow[]>;
   updatePromptFramework(id: string, fields: Partial<Omit<PromptFrameworkRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deletePromptFramework(id: string): Promise<void>;
+  /** Tenancy Realm (m159) — insert a fully-formed realm framework row (a tenant fork), realm columns included. */
+  insertRealmPromptFrameworkRow(f: Omit<PromptFrameworkRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm (m159) — the effective framework set for a tenant (forks + shared ancestors + globals, nearest-owner-wins, canonical key restored). Null tenant = globals only. */
+  resolveTenantEffectivePromptFrameworks(tenantId: string | null): Promise<PromptFrameworkRow[]>;
 
   // Prompt Fragments
   createPromptFragment(f: Omit<PromptFragmentRow, 'created_at' | 'updated_at'>): Promise<void>;
@@ -106,6 +110,10 @@ export interface IPromptStore {
   listPromptContracts(): Promise<PromptContractRow[]>;
   updatePromptContract(id: string, fields: Partial<Omit<PromptContractRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deletePromptContract(id: string): Promise<void>;
+  /** Tenancy Realm (m159) — insert a fully-formed realm contract row (a tenant fork), realm columns included. */
+  insertRealmPromptContractRow(c: Omit<PromptContractRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm (m159) — the effective contract set for a tenant (forks + shared ancestors + globals, nearest-owner-wins, canonical key restored). Null tenant = globals only. */
+  resolveTenantEffectivePromptContracts(tenantId: string | null): Promise<PromptContractRow[]>;
 
   // Prompt Strategies
   createPromptStrategy(s: Omit<PromptStrategyRow, 'created_at' | 'updated_at'>): Promise<void>;
@@ -114,4 +122,8 @@ export interface IPromptStore {
   listPromptStrategies(): Promise<PromptStrategyRow[]>;
   updatePromptStrategy(id: string, fields: Partial<Omit<PromptStrategyRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deletePromptStrategy(id: string): Promise<void>;
+  /** Tenancy Realm (m159) — insert a fully-formed realm strategy row (a tenant fork), realm columns included. */
+  insertRealmPromptStrategyRow(s: Omit<PromptStrategyRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm (m159) — the effective strategy set for a tenant (forks + shared ancestors + globals, nearest-owner-wins, canonical key restored). Null tenant = globals only. */
+  resolveTenantEffectivePromptStrategies(tenantId: string | null): Promise<PromptStrategyRow[]>;
 }
