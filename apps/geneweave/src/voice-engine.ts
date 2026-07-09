@@ -561,7 +561,8 @@ export class VoiceEngine {
 
     const voiceToolOptions: ToolRegistryOptions = {
       temporalStore:    createTemporalStore(this.db),
-      policyResolver:   new DbToolPolicyResolver(this.db),
+      // Tenancy Realm (m157): resolve tool policies against this session's tenant.
+      policyResolver:   new DbToolPolicyResolver(this.db, row.tenant_id ?? null),
       rateLimiter:      new DbToolRateLimiter(this.db),
       auditEmitter:     new DbToolAuditEmitter(this.db),
       currentUserId:    userId,

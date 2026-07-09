@@ -4,6 +4,7 @@
  * Concrete DatabaseAdapter backed by better-sqlite3.
  */
 import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
+import { resolveTenantEffectiveToolPolicies } from './tool-policy-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from './realm-tenant-state.js';
 import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from './realm-hierarchy.js';
@@ -2391,6 +2392,33 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getToolPolicyByKey(key: string): Promise<ToolPolicyRow | null> {
     return (this.d.prepare('SELECT * FROM tool_policies WHERE key = ?').get(key) as ToolPolicyRow) ?? null;
+  }
+
+  async insertRealmToolPolicyRow(p: Omit<ToolPolicyRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO tool_policies (id, key, name, description, applies_to, applies_to_risk_levels, approval_required, allowed_risk_levels, max_execution_ms, rate_limit_per_minute, max_concurrent, require_dry_run, log_input_output, persona_scope, active_hours_utc, expires_at, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      p.id, p.key, p.name, p.description ?? null, p.applies_to ?? null, p.applies_to_risk_levels ?? null,
+      p.approval_required, p.allowed_risk_levels ?? null, p.max_execution_ms ?? null, p.rate_limit_per_minute ?? null,
+      p.max_concurrent ?? null, p.require_dry_run, p.log_input_output, p.persona_scope ?? null,
+      p.active_hours_utc ?? null, p.expires_at ?? null, p.enabled,
+      p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
+      p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectiveToolPolicies(tenantId: string | null): Promise<ToolPolicyRow[]> {
+    const all = await this.listToolPolicies();
+    if (!tenantId) return all.filter((p) => (p.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectiveToolPolicies(all, tenantId, ctx);
+  }
+
+  async getEffectiveToolPolicyByKey(logicalKey: string, tenantId: string | null): Promise<ToolPolicyRow | null> {
+    if (!tenantId) return this.getToolPolicyByKey(logicalKey);
+    const effective = await this.resolveTenantEffectiveToolPolicies(tenantId);
+    return effective.find((p) => (p.logical_key ?? p.key) === logicalKey) ?? null;
   }
 
   async listToolPolicies(): Promise<ToolPolicyRow[]> {

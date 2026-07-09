@@ -32,6 +32,8 @@ import { pgSeedStore } from './seed.js';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import { buildTenantPromptFork } from '../chat-realm-prompt.js';
+import { buildTenantToolPolicyFork, toolPolicyContentHash } from '../tool-policy-realm.js';
+import type { ToolPolicyRow } from '../db-types/tools.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
 const home = process.env['HOME'] ?? '';
@@ -102,6 +104,42 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     // The four tier presets are present on both.
     for (const tier of ['economy', 'balanced', 'performance', 'max']) {
       expect(sortedKeys(p, (r) => r.key)).toContain(tier);
+    }
+  });
+
+  it('realm columns on tool_policies (m157): a global original + a tenant fork resolve identically on both engines with UNIQUE(key) intact', async () => {
+    // tool_policies are seeded on SQLite by bootstrap migrations (and backfilled by m157) but NOT on
+    // Postgres (the PG seeder creates none), so there's no shared seeded row to compare. Instead insert
+    // an identical GLOBAL original on each engine and prove the fork/resolve round-trip is identical.
+    // The seeded SQLite 'default' also proves m157's backfill == the canonical JS hash.
+    const sqDefault = await sq.getToolPolicyByKey('default');
+    expect(sqDefault, 'SQLite seeds the default tool policy').toBeTruthy();
+    expect(sqDefault!.logical_key).toBe('default');
+    expect(sqDefault!.content_hash).toBe(toolPolicyContentHash(sqDefault!)); // backfill == canonical JS hash
+
+    for (const db of [pg, sq]) {
+      const suffix = db === pg ? 'pg' : 'sq';
+      const key = `parity_pol_${suffix}`;
+      const globalRow: Omit<ToolPolicyRow, 'created_at' | 'updated_at'> = {
+        id: `tp-parity-${suffix}`, key, name: 'Parity Policy', description: 'p',
+        applies_to: null, applies_to_risk_levels: null, approval_required: 0, allowed_risk_levels: JSON.stringify(['low']),
+        max_execution_ms: 5000, rate_limit_per_minute: null, max_concurrent: null, require_dry_run: 0,
+        log_input_output: 1, persona_scope: null, active_hours_utc: null, expires_at: null, enabled: 1,
+        realm: 'global', owner_tenant_id: null, logical_key: key, origin_id: null, origin_hash: '',
+        content_hash: '', track_mode: 'pin', share_mode: 'private',
+      };
+      globalRow.content_hash = toolPolicyContentHash(globalRow);
+      globalRow.origin_hash = globalRow.content_hash;
+      await db.insertRealmToolPolicyRow(globalRow);
+
+      const g = (await db.getToolPolicyByKey(key))!;
+      await db.insertRealmToolPolicyRow(buildTenantToolPolicyFork(g, 'tp-acme', { max_execution_ms: 42 }));
+
+      const forAcme = await db.getEffectiveToolPolicyByKey(key, 'tp-acme');
+      expect(Number(forAcme!.max_execution_ms)).toBe(42);
+      expect(forAcme!.key).toBe(key); // canonical key restored (UNIQUE(key) kept via key#tenant alias)
+      const forGlobex = await db.getEffectiveToolPolicyByKey(key, 'tp-globex');
+      expect(Number(forGlobex!.max_execution_ms)).toBe(5000); // other tenants keep the global
     }
   });
 

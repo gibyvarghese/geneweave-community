@@ -30,7 +30,13 @@ import type { DatabaseAdapter } from './db.js';
  * Returns DEFAULT_TOOL_POLICY (pass-through) if no DB record is found or the record is disabled.
  */
 export class DbToolPolicyResolver implements ToolPolicyResolver {
-  constructor(private readonly db: DatabaseAdapter) {}
+  /**
+   * @param db      the database adapter.
+   * @param tenantId Tenancy Realm (m157): when set, the resolver looks up the tenant-EFFECTIVE tool
+   *   policy for each candidate key (the tenant's fork if any, else a shared ancestor's, else the global)
+   *   instead of the raw global row. Null/omitted preserves the pre-realm behaviour (global policies).
+   */
+  constructor(private readonly db: DatabaseAdapter, private readonly tenantId: string | null = null) {}
 
   async resolve(toolName: string, ctx?: PolicyResolutionContext): Promise<EffectiveToolPolicy> {
     // If the tool is explicitly enabled at the chat level, bypass the skill
@@ -45,7 +51,9 @@ export class DbToolPolicyResolver implements ToolPolicyResolver {
     ].filter(Boolean) as string[];
 
     for (const key of candidateKeys) {
-      const row = await this.db.getToolPolicyByKey(key);
+      // Tenancy Realm (m157): resolve the tenant-effective policy for this logical key (fork > shared
+      // ancestor > global). With no tenant this falls back to the plain global lookup by key.
+      const row = await this.db.getEffectiveToolPolicyByKey(key, this.tenantId);
       if (!row || !row.enabled) continue;
 
       // Check persona scope if configured
