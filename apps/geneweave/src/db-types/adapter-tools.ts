@@ -66,6 +66,8 @@ export interface IToolStore {
 
   // Skills
   createSkill(s: Omit<SkillRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm: insert a skill row INCLUDING its realm columns (createSkill omits them). Used to persist a tenant's copy-on-write fork of a global skill. */
+  insertRealmSkillRow(s: Omit<SkillRow, 'created_at' | 'updated_at'>): Promise<void>;
   getSkill(id: string): Promise<SkillRow | null>;
   listSkills(): Promise<SkillRow[]>;
   listEnabledSkills(): Promise<SkillRow[]>;
