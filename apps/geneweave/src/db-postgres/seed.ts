@@ -2481,6 +2481,12 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       // operator never touched, keep customized/diverged rows. Identical drift outcomes to SQLite.
       await ctx.query(`UPDATE prompts SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
       await reconcilePromptRealm(ctx as unknown as SqlClient, 'postgres', prompts);
+
+      // ─── Tenancy Realm — realm columns on skills (mirror of m154 + SQLite) ───
+      // Classify built-in skills as global-realm originals so a tenant can fork one. logical_key = id.
+      await ctx.query(`UPDATE skills SET logical_key = id WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'skills', ['name', 'description', 'category', 'trigger_patterns', 'instructions', 'tool_names', 'examples', 'tags', 'domain_sections', 'execution_contract']);
+      await ctx.query(`UPDATE skills SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
     },
   };
 }

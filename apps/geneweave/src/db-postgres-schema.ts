@@ -3059,6 +3059,14 @@ CREATE TABLE IF NOT EXISTS "skills" (
   "trust" BIGINT NOT NULL DEFAULT 0,
   "input_modalities" TEXT NOT NULL DEFAULT '["text"]',
   "trust_tier" BIGINT NOT NULL DEFAULT 1,
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
   PRIMARY KEY ("id")
 );
 

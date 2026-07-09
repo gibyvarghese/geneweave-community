@@ -16,6 +16,7 @@ import type { DatabaseAdapter } from './db.js';
 import { buildSkillRetriever, orderSkillMatchesByComposition } from './skill-capabilities.js';
 import type { ChatScopeGuard } from './chat-scope-guard.js';
 import type { ScopeContext } from '@weaveintel/identity/scope';
+import { resolveTenantEffectiveSkills } from './skill-realm.js';
 
 // ── Private helper ──────────────────────────────────────────
 
@@ -217,8 +218,15 @@ export async function discoverSkillsForInput(
     let rows = await db.listEnabledSkills();
     if (!rows.length) return { matches: [], toolNames: [] };
     if (tenantId) {
-      const states = await db.resolveRealmStates('skills', tenantId, rows.map((r) => r.id));
-      rows = rows.filter((r) => states.get(r.id)?.active !== false);
+      // Content (realm): resolve the tenant-effective skill per logical key — a tenant's own fork (or a
+      // parent org's shared fork) wins over the global built-in, using the tenant's real lineage.
+      const ctxLineage = await db.realmContext(tenantId);
+      rows = resolveTenantEffectiveSkills(rows, tenantId, ctxLineage);
+      // Disposition (state overlay): drop skills this tenant disabled for itself — keyed by logical key
+      // (a fork carries its origin's logical key, so a disable applies to the fork too).
+      const keys = rows.map((r) => r.logical_key ?? r.id);
+      const states = await db.resolveRealmStates('skills', tenantId, keys);
+      rows = rows.filter((r) => states.get(r.logical_key ?? r.id)?.active !== false);
       if (!rows.length) return { matches: [], toolNames: [] };
     }
 
