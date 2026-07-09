@@ -2487,6 +2487,11 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       await ctx.query(`UPDATE skills SET logical_key = id WHERE logical_key IS NULL OR logical_key = ''`);
       await backfillRealmContentHash(ctx, 'skills', ['name', 'description', 'category', 'trigger_patterns', 'instructions', 'tool_names', 'examples', 'tags', 'domain_sections', 'execution_contract']);
       await ctx.query(`UPDATE skills SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      // ─── Tenancy Realm — realm columns on worker_agents (mirror of m155 + SQLite) ───
+      // Classify built-in workers as global-realm originals so a tenant can fork one. logical_key = name.
+      await ctx.query(`UPDATE worker_agents SET logical_key = name WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'worker_agents', ['display_name', 'job_profile', 'description', 'system_prompt', 'tool_names', 'persona', 'trigger_patterns', 'task_contract_id', 'category']);
+      await ctx.query(`UPDATE worker_agents SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
     },
   };
 }
