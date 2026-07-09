@@ -17,6 +17,12 @@ export interface IToolStore {
   listToolPolicies(): Promise<ToolPolicyRow[]>;
   updateToolPolicy(id: string, fields: Partial<Omit<ToolPolicyRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deleteToolPolicy(id: string): Promise<void>;
+  /** Tenancy Realm (m157) — insert a fully-formed realm tool-policy row (a tenant fork), realm columns included. */
+  insertRealmToolPolicyRow(p: Omit<ToolPolicyRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm (m157) — the effective tool-policy set for a tenant (its forks + shared ancestors + globals, nearest-owner-wins, canonical key restored). Null tenant = globals only. */
+  resolveTenantEffectiveToolPolicies(tenantId: string | null): Promise<ToolPolicyRow[]>;
+  /** Tenancy Realm (m157) — the effective tool policy for a tenant under a canonical logical key (the DbToolPolicyResolver read path). Null tenant → the global row by key. */
+  getEffectiveToolPolicyByKey(logicalKey: string, tenantId: string | null): Promise<ToolPolicyRow | null>;
   checkAndIncrementRateLimit(toolName: string, scopeKey: string, windowStartIso: string, limitPerMinute: number): Promise<boolean>;
   /** M-10: Returns how many calls have been made in the current window bucket. */
   getToolRateLimitCount(toolName: string, scopeKey: string, windowStartIso: string): Promise<number>;

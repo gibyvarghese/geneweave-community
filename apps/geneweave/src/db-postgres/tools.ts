@@ -14,6 +14,9 @@
 import { newUUIDv7 } from '@weaveintel/core';
 import type { PgCtx } from '../db-postgres-ctx.js';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
+import type { SqlClient } from '@weaveintel/realm';
+import { buildTenantContext } from '../realm-hierarchy.js';
+import { resolveTenantEffectiveToolPolicies as resolveEffectiveToolPolicies } from '../tool-policy-realm.js';
 import type {
   ToolCatalogRow,
   ToolPolicyRow,
@@ -108,6 +111,41 @@ export function pgToolStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     async getToolPolicyByKey(key: string): Promise<ToolPolicyRow | null> {
       const { rows } = await ctx.query('SELECT * FROM tool_policies WHERE key = $1', [key]);
       return (rows[0] as ToolPolicyRow | undefined) ?? null;
+    },
+
+    async insertRealmToolPolicyRow(p: Omit<ToolPolicyRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO tool_policies (id, key, name, description, applies_to, applies_to_risk_levels, approval_required, allowed_risk_levels, max_execution_ms, rate_limit_per_minute, max_concurrent, require_dry_run, log_input_output, persona_scope, active_hours_utc, expires_at, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
+        [
+          p.id, p.key, p.name, p.description ?? null, p.applies_to ?? null, p.applies_to_risk_levels ?? null,
+          p.approval_required, p.allowed_risk_levels ?? null, p.max_execution_ms ?? null, p.rate_limit_per_minute ?? null,
+          p.max_concurrent ?? null, p.require_dry_run, p.log_input_output, p.persona_scope ?? null,
+          p.active_hours_utc ?? null, p.expires_at ?? null, p.enabled,
+          p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
+          p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectiveToolPolicies(tenantId: string | null): Promise<ToolPolicyRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM tool_policies ORDER BY name COLLATE "C" ASC', []);
+      const all = rows as unknown as ToolPolicyRow[];
+      if (!tenantId) return all.filter((p) => (p.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveToolPolicies(all, tenantId, context);
+    },
+
+    async getEffectiveToolPolicyByKey(logicalKey: string, tenantId: string | null): Promise<ToolPolicyRow | null> {
+      if (!tenantId) {
+        const { rows } = await ctx.query('SELECT * FROM tool_policies WHERE key = $1', [logicalKey]);
+        return (rows[0] as ToolPolicyRow | undefined) ?? null;
+      }
+      const { rows } = await ctx.query('SELECT * FROM tool_policies ORDER BY name COLLATE "C" ASC', []);
+      const all = rows as unknown as ToolPolicyRow[];
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      const effective = resolveEffectiveToolPolicies(all, tenantId, context);
+      return effective.find((p) => (p.logical_key ?? p.key) === logicalKey) ?? null;
     },
 
     async listToolPolicies(): Promise<ToolPolicyRow[]> {

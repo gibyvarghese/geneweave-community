@@ -2497,6 +2497,12 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       await ctx.query(`UPDATE guardrails SET logical_key = name WHERE logical_key IS NULL OR logical_key = ''`);
       await backfillRealmContentHash(ctx, 'guardrails', ['description', 'type', 'stage', 'config', 'trigger_conditions', 'trigger_description', 'judge_model', 'compliance_framework']);
       await ctx.query(`UPDATE guardrails SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      // ─── Tenancy Realm — realm columns on tool_policies (mirror of m157 + SQLite) ───
+      // Classify any tool policies as global-realm originals so a tenant can fork one. logical_key = key.
+      // (PG seeds no tool_policies today — this is a no-op safety net for installs that add them.)
+      await ctx.query(`UPDATE tool_policies SET logical_key = key WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'tool_policies', ['description', 'applies_to', 'applies_to_risk_levels', 'approval_required', 'allowed_risk_levels', 'max_execution_ms', 'rate_limit_per_minute', 'max_concurrent', 'require_dry_run', 'log_input_output', 'persona_scope', 'active_hours_utc', 'expires_at']);
+      await ctx.query(`UPDATE tool_policies SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
     },
   };
 }

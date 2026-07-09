@@ -1254,6 +1254,9 @@ export class ChatEngine {
       ...this.toolOptions,
       defaultTimezone: settings.timezone,
       currentUserId: userId,
+      // Tenancy Realm (m157): resolve tool policies against THIS request's tenant, so a tenant's forked
+      // policy gates its tools without affecting anyone else. No tenant → the shared global resolver.
+      ...(tenantId != null ? { policyResolver: new DbToolPolicyResolver(this.db, tenantId) } : {}),
       ...(tenantId != null ? { currentTenantId: tenantId } : {}),
       ...(userPersona ? { currentPersona: userPersona } : {}),
       currentChatId: chatId,
