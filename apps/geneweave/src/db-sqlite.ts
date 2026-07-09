@@ -4,6 +4,7 @@
  * Concrete DatabaseAdapter backed by better-sqlite3.
  */
 import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
+import { applyM154RealmColumnsSkills } from './migrations/m154-realm-columns-skills.js';
 import { applyM155RealmColumnsWorkerAgents } from './migrations/m155-realm-columns-worker-agents.js';
 import { resolveTenantEffectiveWorkerAgents } from './worker-agent-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
@@ -2874,6 +2875,19 @@ export class SQLiteAdapter implements DatabaseAdapter {
       s.supervisor_agent_id ?? null,
       s.domain_sections ?? null,
       s.execution_contract ?? null,
+    );
+  }
+
+  async insertRealmSkillRow(s: Omit<SkillRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO skills (id, name, description, category, trigger_patterns, instructions, tool_names, examples, tags, priority, version, tool_policy_key, enabled, supervisor_agent_id, domain_sections, execution_contract, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      s.id, s.name, s.description, s.category, s.trigger_patterns, s.instructions, s.tool_names ?? null,
+      s.examples ?? null, s.tags ?? null, s.priority, s.version, s.tool_policy_key ?? null, s.enabled,
+      s.supervisor_agent_id ?? null, s.domain_sections ?? null, s.execution_contract ?? null,
+      s.realm ?? 'tenant', s.owner_tenant_id ?? null, s.logical_key ?? null, s.origin_id ?? null,
+      s.origin_hash ?? null, s.content_hash ?? '', s.track_mode ?? 'pin', s.share_mode ?? 'private',
     );
   }
 
@@ -7353,6 +7367,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // above. Re-running the (idempotent) migration backfills logical_key + content_hash for the
     // freshly-seeded rows too. Guarded ALTERs are skipped; only empty content_hashes are filled.
     applyM151RealmColumns(this.d);
+    // Same for skills (m154): classify the just-seeded built-in skills as global-realm originals so a
+    // tenant can fork one. Idempotent; only fills empty logical_key/content_hash.
+    applyM154RealmColumnsSkills(this.d);
     // Same for worker_agents (m155): classify the just-seeded built-in workers as global-realm
     // originals so a tenant can fork one. Idempotent; only fills empty logical_key/content_hash.
     applyM155RealmColumnsWorkerAgents(this.d);

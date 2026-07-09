@@ -32,6 +32,7 @@ import { pgSeedStore } from './seed.js';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import { buildTenantPromptFork } from '../chat-realm-prompt.js';
+import { buildTenantSkillFork, resolveTenantEffectiveSkills } from '../skill-realm.js';
 import { buildTenantWorkerAgentFork, workerContentHash } from '../worker-agent-realm.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
@@ -103,6 +104,30 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     // The four tier presets are present on both.
     for (const tier of ['economy', 'balanced', 'performance', 'max']) {
       expect(sortedKeys(p, (r) => r.key)).toContain(tier);
+    }
+  });
+
+  it('realm columns on skills (m154): built-ins are global originals with identical content_hash across engines, and a fork resolves per tenant', async () => {
+    // NOTE: skill COUNTS differ by design (SQLite pre-seeds ~17 via bootstrap migrations; the PG seed
+    // populates fewer from empty — see the parity-scope note above). So compare content_hash only for the
+    // logical keys present on BOTH engines, and require the built-in set to overlap.
+    const { rows: pRows } = await pool.query(`SELECT logical_key, content_hash FROM skills WHERE realm='global'`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sRows = (sq as any).d.prepare(`SELECT logical_key, content_hash FROM skills WHERE realm='global'`).all() as Array<{ logical_key: string; content_hash: string }>;
+    const pByKey = new Map((pRows as Array<{ logical_key: string; content_hash: string }>).map((r) => [r.logical_key, r.content_hash]));
+    const shared = sRows.filter((s) => pByKey.has(s.logical_key));
+    expect(shared.length).toBeGreaterThan(0); // the two engines share at least the core built-ins
+    for (const s of shared) expect(pByKey.get(s.logical_key), `skill hash mismatch ${s.logical_key}`).toBe(s.content_hash);
+
+    // A fork resolves for its tenant on both engines; another tenant gets the global.
+    for (const db of [pg, sq]) {
+      const g = (await db.listSkills()).find((x) => (x.realm ?? 'global') === 'global')!;
+      await db.insertRealmSkillRow(buildTenantSkillFork(g, 'sk-acme', { instructions: 'ACME SKILL EDIT' }));
+      const all = await db.listSkills();
+      const forAcme = resolveTenantEffectiveSkills(all, 'sk-acme').find((x) => (x.logical_key ?? x.id) === (g.logical_key ?? g.id))!;
+      const forGlobex = resolveTenantEffectiveSkills(all, 'sk-globex').find((x) => (x.logical_key ?? x.id) === (g.logical_key ?? g.id))!;
+      expect(forAcme.instructions).toBe('ACME SKILL EDIT');
+      expect(forGlobex.instructions).not.toBe('ACME SKILL EDIT');
     }
   });
 
