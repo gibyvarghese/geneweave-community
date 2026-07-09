@@ -11,6 +11,9 @@
  * pass-through; every value is a bound parameter.
  */
 import type { PgCtx } from '../db-postgres-ctx.js';
+import { buildTenantContext } from '../realm-hierarchy.js';
+import { resolveTenantEffectiveWorkerAgents as resolveEffectiveWorkers } from '../worker-agent-realm.js';
+import type { SqlClient } from '@weaveintel/realm';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type {
   WorkerAgentRow,
@@ -47,6 +50,27 @@ export function pgAgentStore(ctx: PgCtx): Partial<DatabaseAdapter> {
           w.enabled,
         ],
       );
+    },
+
+    async insertRealmWorkerAgentRow(w: Omit<WorkerAgentRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO worker_agents (id, name, display_name, job_profile, description, system_prompt, tool_names, persona, trigger_patterns, task_contract_id, max_retries, priority, category, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+        [
+          w.id, w.name, w.display_name ?? null, w.job_profile ?? null, w.description, w.system_prompt, w.tool_names,
+          w.persona, w.trigger_patterns ?? null, w.task_contract_id ?? null, w.max_retries, w.priority, w.category ?? 'general', w.enabled,
+          w.realm ?? 'tenant', w.owner_tenant_id ?? null, w.logical_key ?? null, w.origin_id ?? null,
+          w.origin_hash ?? null, w.content_hash ?? '', w.track_mode ?? 'pin', w.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectiveWorkerAgents(tenantId: string | null): Promise<WorkerAgentRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM worker_agents ORDER BY priority DESC', []);
+      const all = rows as unknown as WorkerAgentRow[];
+      if (!tenantId) return all.filter((w) => (w.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveWorkers(all, tenantId, context);
     },
 
     async getWorkerAgent(id: string): Promise<WorkerAgentRow | null> {

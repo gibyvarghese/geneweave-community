@@ -4,6 +4,8 @@
  * Concrete DatabaseAdapter backed by better-sqlite3.
  */
 import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
+import { applyM155RealmColumnsWorkerAgents } from './migrations/m155-realm-columns-worker-agents.js';
+import { resolveTenantEffectiveWorkerAgents } from './worker-agent-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from './realm-tenant-state.js';
 import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from './realm-hierarchy.js';
@@ -3026,6 +3028,25 @@ export class SQLiteAdapter implements DatabaseAdapter {
       w.category ?? 'general',
       w.enabled,
     );
+  }
+
+  async insertRealmWorkerAgentRow(w: Omit<WorkerAgentRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO worker_agents (id, name, display_name, job_profile, description, system_prompt, tool_names, persona, trigger_patterns, task_contract_id, max_retries, priority, category, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      w.id, w.name, w.display_name ?? null, w.job_profile ?? null, w.description, w.system_prompt, w.tool_names,
+      w.persona, w.trigger_patterns ?? null, w.task_contract_id ?? null, w.max_retries, w.priority, w.category ?? 'general', w.enabled,
+      w.realm ?? 'tenant', w.owner_tenant_id ?? null, w.logical_key ?? null, w.origin_id ?? null,
+      w.origin_hash ?? null, w.content_hash ?? '', w.track_mode ?? 'pin', w.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectiveWorkerAgents(tenantId: string | null): Promise<WorkerAgentRow[]> {
+    const all = await this.listWorkerAgents();
+    if (!tenantId) return all.filter((w) => (w.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectiveWorkerAgents(all, tenantId, ctx);
   }
 
   async getWorkerAgent(id: string): Promise<WorkerAgentRow | null> {
@@ -7332,6 +7353,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // above. Re-running the (idempotent) migration backfills logical_key + content_hash for the
     // freshly-seeded rows too. Guarded ALTERs are skipped; only empty content_hashes are filled.
     applyM151RealmColumns(this.d);
+    // Same for worker_agents (m155): classify the just-seeded built-in workers as global-realm
+    // originals so a tenant can fork one. Idempotent; only fills empty logical_key/content_hash.
+    applyM155RealmColumnsWorkerAgents(this.d);
   }
 
   /**

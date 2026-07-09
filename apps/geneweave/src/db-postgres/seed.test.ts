@@ -32,6 +32,7 @@ import { pgSeedStore } from './seed.js';
 import { BUILT_IN_SKILLS } from '@weaveintel/skills';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import { buildTenantPromptFork } from '../chat-realm-prompt.js';
+import { buildTenantWorkerAgentFork, workerContentHash } from '../worker-agent-realm.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
 const home = process.env['HOME'] ?? '';
@@ -102,6 +103,36 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     // The four tier presets are present on both.
     for (const tier of ['economy', 'balanced', 'performance', 'max']) {
       expect(sortedKeys(p, (r) => r.key)).toContain(tier);
+    }
+  });
+
+  it('realm columns on worker_agents (m155): built-ins are global originals whose backfilled content_hash matches the canonical JS hash on BOTH engines, and a fork resolves per tenant with UNIQUE(name) intact', async () => {
+    // The two backends seed DISJOINT worker sets (SQLite pre-seeds weave_*/sv-* via bootstrap
+    // migrations; the PG seed block seeds code_executor/researcher/analyst/writer/statsnz from an
+    // empty baseline — see PARITY SCOPE). Cross-engine set-equality is therefore meaningless here.
+    // The real parity claim is the HASH ALGORITHM: each engine's backfill (PG SQL-path vs SQLite
+    // JS-path) must produce the SAME canonical content_hash for the SAME row content. Assert that
+    // directly — every seeded global's stored content_hash equals workerContentHash recomputed in JS.
+    for (const db of [pg, sq]) {
+      const globals = (await db.listWorkerAgents()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(globals.length).toBeGreaterThan(0);
+      for (const g of globals) {
+        expect(g.logical_key, `logical_key set for ${g.name}`).toBe(g.name);
+        expect(g.content_hash?.startsWith('sha256:'), `sha256 content_hash for ${g.name}`).toBe(true);
+        expect(g.content_hash, `backfill == canonical JS hash for ${g.name}`).toBe(workerContentHash(g));
+        expect(g.origin_hash, `origin_hash baseline for ${g.name}`).toBe(g.content_hash);
+      }
+    }
+
+    // A fork (tenant-scoped name) resolves for its tenant on both engines with the canonical name restored.
+    for (const db of [pg, sq]) {
+      const g = (await db.listWorkerAgents()).find((x) => (x.realm ?? 'global') === 'global')!;
+      await db.insertRealmWorkerAgentRow(buildTenantWorkerAgentFork(g, 'wa-acme', { system_prompt: 'ACME WORKER EDIT' }));
+      const forAcme = (await db.resolveTenantEffectiveWorkerAgents('wa-acme')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forAcme.system_prompt).toBe('ACME WORKER EDIT');
+      expect(forAcme.name).toBe(g.name); // canonical name restored
+      const forGlobex = (await db.resolveTenantEffectiveWorkerAgents('wa-globex')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forGlobex.system_prompt).not.toBe('ACME WORKER EDIT');
     }
   });
 
