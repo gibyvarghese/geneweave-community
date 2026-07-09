@@ -26,6 +26,15 @@ export interface GuardrailRow {
   judge_model?: string | null;
   /** Phase 4: regulatory/compliance framework this guardrail enforces (e.g. EU_AI_ACT_ART_5). */
   compliance_framework?: string | null;
+  // ── Tenancy Realm (m156) — present on every row via SELECT *; built-ins are realm='global' ──
+  realm?: string;                 // 'global' | 'tenant'
+  owner_tenant_id?: string | null;
+  logical_key?: string | null;    // = the guardrail's name; shared by a global + its tenant forks
+  origin_id?: string | null;      // the global guardrail a tenant fork was copied from
+  origin_hash?: string | null;    // that origin's content_hash at fork time (drift base)
+  content_hash?: string;          // canonical hash of this guardrail's policy fields
+  track_mode?: string;            // 'pin' | 'track_latest'
+  share_mode?: string;            // 'private' | 'children' | 'subtree'
   created_at: string;
   updated_at: string;
 }

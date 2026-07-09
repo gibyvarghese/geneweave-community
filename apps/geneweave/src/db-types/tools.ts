@@ -49,6 +49,15 @@ export interface ToolPolicyRow {
   active_hours_utc: string | null;        // JSON { start: "HH:MM", end: "HH:MM" }
   expires_at: string | null;
   enabled: number;
+  // ── Tenancy Realm (m157) — present on every row via SELECT *; built-ins are realm='global' ──
+  realm?: string;                 // 'global' | 'tenant'
+  owner_tenant_id?: string | null;
+  logical_key?: string | null;    // = the policy's canonical key; shared by a global + its tenant forks
+  origin_id?: string | null;      // the global policy a tenant fork was copied from
+  origin_hash?: string | null;    // that origin's content_hash at fork time (drift base)
+  content_hash?: string;          // canonical hash of this policy's gate fields
+  track_mode?: string;            // 'pin' | 'track_latest'
+  share_mode?: string;            // 'private' | 'children' | 'subtree'
   created_at: string;
   updated_at: string;
 }
@@ -304,6 +313,15 @@ export interface SkillRow {
   enabled: number;
   created_at: string;
   updated_at: string;
+  // ── Tenancy Realm (m154) — present on every row via SELECT *; built-ins are realm='global' ──
+  realm?: string;                 // 'global' | 'tenant'
+  owner_tenant_id?: string | null;
+  logical_key?: string | null;    // = the built-in skill id; shared by a global original + its tenant forks
+  origin_id?: string | null;      // the global skill a tenant fork was copied from
+  origin_hash?: string | null;    // that origin's content_hash at fork time (drift base)
+  content_hash?: string;          // canonical hash of this skill's semantic fields
+  track_mode?: string;            // 'pin' | 'track_latest'
+  share_mode?: string;            // 'private' | 'children' | 'subtree'
 }
 
 /** Phase 6: Tool Approval Request — created by DbToolApprovalGate when a tool requires operator approval */

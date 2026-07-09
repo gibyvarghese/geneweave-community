@@ -345,6 +345,9 @@ export async function startGenericSupervisorIfEnabled(
     // each other (each holds only the DB ref), so reusing them across
     // chat + live-agents is safe.
     policy: weaveDbLiveAgentPolicy({
+      // Note (Tenancy Realm m157): the generic supervisor is a process-level heartbeat with no single
+      // request tenant, so it resolves GLOBAL tool policies. Per-tenant tool-policy forks apply on the
+      // chat + voice paths (which carry a request/session tenant).
       policyResolver: new DbToolPolicyResolver(opts.db),
       approvalGate: new DbToolApprovalGate(opts.db),
       rateLimiter: new DbToolRateLimiter(opts.db),
