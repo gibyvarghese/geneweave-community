@@ -4,6 +4,7 @@ import type { DatabaseAdapter } from '../../db.js';
 import type { GuardrailRow } from '../../db-types.js';
 import type { RouterLike, AdminHelpers } from './types.js';
 import { recordGuardrailChange } from '../../guardrail-revision-store.js';
+import { buildTenantGuardrailFork } from '../../guardrail-realm.js';
 
 // Use the app's runtime when available so weaveAudit writes to durable KV.
 function makeAdminCtx(runtime?: WeaveRuntime): ExecutionContext {
@@ -86,10 +87,13 @@ export function registerGuardrailRoutes(
 ): void {
   const { json, readBody } = helpers;
 
-  router.get('/api/admin/guardrails', async (_req, res, _params, auth) => {
+  // List all guardrails, OR — with ?tenantId= — the EFFECTIVE guardrail set for that tenant (its own
+  // forks + a parent org's shared forks + the globals, nearest-owner-wins).
+  router.get('/api/admin/guardrails', async (req, res, _params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
-    const guardrails = await db.listGuardrails();
-    json(res, 200, { guardrails: guardrails.map(enrichRow) });
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const guardrails = tenantId ? await db.resolveTenantEffectiveGuardrails(tenantId) : await db.listGuardrails();
+    json(res, 200, { guardrails: guardrails.map(enrichRow), ...(tenantId ? { tenantId } : {}) });
   }, { auth: true });
 
   router.get('/api/admin/guardrails/:id', async (_req, res, params, auth) => {
@@ -98,6 +102,64 @@ export function registerGuardrailRoutes(
     if (!g) { json(res, 404, { error: 'Guardrail not found' }); return; }
     json(res, 200, { guardrail: enrichRow(g) });
   }, { auth: true });
+
+  // ── Admin: Tenancy Realm — per-tenant guardrail customization (content fork) ────────────────
+  const GUARDRAIL_OVERRIDE_KEYS = ['description', 'type', 'stage', 'config', 'trigger_conditions', 'trigger_description', 'judge_model', 'compliance_framework', 'share_mode'] as const;
+
+  // Who-gets-what for a tenant: the effective guardrail + where it came from.
+  router.get('/api/admin/guardrails/:id/realm', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const base = await db.getGuardrail(params['id']!);
+    if (!base) { json(res, 404, { error: 'Guardrail not found' }); return; }
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const logicalKey = base.logical_key ?? base.name;
+    const effective = tenantId
+      ? (await db.resolveTenantEffectiveGuardrails(tenantId)).find((g) => (g.logical_key ?? g.name) === logicalKey) ?? base
+      : base;
+    const kind = effective.realm === 'tenant' ? (effective.owner_tenant_id === tenantId ? 'own_override' : 'inherited') : 'global';
+    json(res, 200, { effective: enrichRow(effective), provenance: { kind }, tenantId });
+  }, { auth: true });
+
+  // Create/replace a tenant's fork of this global guardrail.
+  router.post('/api/admin/guardrails/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getGuardrail(params['id']!);
+    if (!global) { json(res, 404, { error: 'Guardrail not found' }); return; }
+    if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global guardrail, not an existing tenant copy' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const tenantId = body['tenantId'];
+    if (typeof tenantId !== 'string' || !tenantId.trim()) { json(res, 400, { error: 'tenantId required' }); return; }
+    const overrides: Record<string, unknown> = {};
+    for (const k of GUARDRAIL_OVERRIDE_KEYS) {
+      if (body[k] === undefined) continue;
+      // JSON columns (config / trigger_conditions) → stringify an object payload.
+      overrides[k] = ((k === 'config' || k === 'trigger_conditions') && body[k] !== null && typeof body[k] === 'object')
+        ? JSON.stringify(body[k]) : body[k];
+    }
+    const logicalKey = global.logical_key ?? global.name;
+    const existing = (await db.listGuardrails()).find((g) => g.realm === 'tenant' && g.owner_tenant_id === tenantId && (g.logical_key ?? g.name) === logicalKey);
+    if (existing) await db.deleteGuardrail(existing.id);
+    const fork = buildTenantGuardrailFork(global, tenantId, overrides as Parameters<typeof buildTenantGuardrailFork>[2]);
+    await db.insertRealmGuardrailRow(fork);
+    const saved = await db.getGuardrail(fork.id);
+    json(res, 201, { fork: saved ? enrichRow(saved) : null, replacedExisting: Boolean(existing) });
+  }, { auth: true, csrf: true });
+
+  // Revert: drop a tenant's guardrail fork so it falls back to the global built-in.
+  router.del('/api/admin/guardrails/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getGuardrail(params['id']!);
+    if (!global) { json(res, 404, { error: 'Guardrail not found' }); return; }
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    const logicalKey = global.logical_key ?? global.name;
+    const fork = (await db.listGuardrails()).find((g) => g.realm === 'tenant' && g.owner_tenant_id === tenantId && (g.logical_key ?? g.name) === logicalKey);
+    if (!fork) { json(res, 404, { error: 'No customization for this tenant' }); return; }
+    await db.deleteGuardrail(fork.id);
+    json(res, 200, { ok: true, reverted: fork.id });
+  }, { auth: true, csrf: true });
 
   // New: revision history endpoint
   router.get('/api/admin/guardrails/:id/revisions', async (_req, res, params, auth) => {

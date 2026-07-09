@@ -34,6 +34,7 @@ import type { DatabaseAdapter } from '../db-types/adapter.js';
 import { buildTenantPromptFork } from '../chat-realm-prompt.js';
 import { buildTenantSkillFork, resolveTenantEffectiveSkills } from '../skill-realm.js';
 import { buildTenantWorkerAgentFork, workerContentHash } from '../worker-agent-realm.js';
+import { buildTenantGuardrailFork, guardrailContentHash } from '../guardrail-realm.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
 const home = process.env['HOME'] ?? '';
@@ -158,6 +159,39 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
       expect(forAcme.name).toBe(g.name); // canonical name restored
       const forGlobex = (await db.resolveTenantEffectiveWorkerAgents('wa-globex')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
       expect(forGlobex.system_prompt).not.toBe('ACME WORKER EDIT');
+    }
+  });
+
+  it('realm columns on guardrails (m156): built-ins are global originals whose backfilled content_hash matches the canonical JS hash on BOTH engines, and a fork resolves per tenant', async () => {
+    // The real parity claim is the HASH ALGORITHM: each engine's backfill (PG SQL-path vs SQLite
+    // JS-path) must produce the SAME canonical content_hash for the SAME policy content.
+    for (const db of [pg, sq]) {
+      const globals = (await db.listGuardrails()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(globals.length).toBeGreaterThan(0);
+      for (const g of globals) {
+        expect(g.logical_key, `logical_key set for ${g.name}`).toBe(g.name);
+        expect(g.content_hash?.startsWith('sha256:'), `sha256 content_hash for ${g.name}`).toBe(true);
+        expect(g.content_hash, `backfill == canonical JS hash for ${g.name}`).toBe(guardrailContentHash(g));
+        expect(g.origin_hash, `origin_hash baseline for ${g.name}`).toBe(g.content_hash);
+      }
+    }
+    // Where the two engines seed the SAME guardrail (shared logical_key), the content_hash matches byte-for-byte.
+    const pGlobals = (await pg.listGuardrails()).filter((x) => (x.realm ?? 'global') === 'global');
+    const sByKey = new Map((await sq.listGuardrails()).filter((x) => (x.realm ?? 'global') === 'global').map((g) => [g.logical_key ?? g.name, g.content_hash]));
+    const sharedG = pGlobals.filter((g) => sByKey.has(g.logical_key ?? g.name));
+    expect(sharedG.length).toBeGreaterThan(0);
+    for (const g of sharedG) expect(sByKey.get(g.logical_key ?? g.name), `cross-engine hash ${g.name}`).toBe(g.content_hash);
+
+    // A fork resolves for its tenant on both engines; other tenants keep the global.
+    for (const db of [pg, sq]) {
+      const g = (await db.listGuardrails()).find((x) => (x.realm ?? 'global') === 'global')!;
+      const cfg = JSON.stringify({ ...(g.config ? JSON.parse(g.config) : {}), tenantMarker: 'ACME_GR_EDIT' });
+      await db.insertRealmGuardrailRow(buildTenantGuardrailFork(g, 'gr-acme', { config: cfg }));
+      const forAcme = (await db.resolveTenantEffectiveGuardrails('gr-acme')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forAcme.config).toContain('ACME_GR_EDIT');
+      expect(forAcme.name).toBe(g.name);
+      const forGlobex = (await db.resolveTenantEffectiveGuardrails('gr-globex')).find((x) => (x.logical_key ?? x.name) === (g.logical_key ?? g.name))!;
+      expect(forGlobex.config ?? '').not.toContain('ACME_GR_EDIT');
     }
   });
 

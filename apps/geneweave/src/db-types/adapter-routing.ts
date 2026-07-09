@@ -7,6 +7,10 @@ export interface IRoutingStore {
   listGuardrails(): Promise<GuardrailRow[]>;
   updateGuardrail(id: string, fields: Partial<Omit<GuardrailRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deleteGuardrail(id: string): Promise<void>;
+  /** Tenancy Realm (m156) — insert a fully-formed realm guardrail row (a tenant fork), realm columns included. */
+  insertRealmGuardrailRow(g: Omit<GuardrailRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm (m156) — the effective guardrail set for a tenant (its forks + shared ancestors + globals, nearest-owner-wins). Null tenant = globals only. */
+  resolveTenantEffectiveGuardrails(tenantId: string | null): Promise<GuardrailRow[]>;
 
   // Guardrail revisions (W7 — append-only audit trail)
   createGuardrailRevision(r: Omit<GuardrailRevisionRow, 'created_at'> & { created_at?: string }): Promise<void>;
