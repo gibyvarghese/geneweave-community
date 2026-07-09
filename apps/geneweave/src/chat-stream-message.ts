@@ -326,7 +326,10 @@ export async function streamMessageImpl(
   // An explicit model override PINS the model and bypasses the router (e.g. a
   // run that wants a specific reasoning model). Otherwise the router decides.
   const pinned = typeof opts?.model === 'string' && opts.model.length > 0;
-  const routed = pinned ? null : await routeModel(deps.db, await deps.getAvailableModels(), deps.healthTracker.listHealth(), { ...opts, prompt: content }, blocked);
+  // Fetch the actor up front so the request's tenant can drive tenant-effective routing (m158).
+  const actor = await deps.db.getUserById(userId);
+  const tenantId = actor?.tenant_id ?? null;
+  const routed = pinned ? null : await routeModel(deps.db, await deps.getAvailableModels(), deps.healthTracker.listHealth(), { ...opts, prompt: content, tenantId }, blocked);
   // Snapshot the resolved routing task so the `done` event can carry it — the UI passes it back when the
   // reader rates the answer, which lets that feedback update the model's routing quality score (m137).
   const resolvedTaskKey: string | null = routed?.taskKey ?? null;
@@ -349,9 +352,7 @@ export async function streamMessageImpl(
   }
 
   const model = await getOrCreateModel(provider, modelId, providerCfg);
-  const actor = await deps.db.getUserById(userId);
   const userPersona = normalizePersona(actor?.persona, 'user');
-  const tenantId = actor?.tenant_id ?? null;
   const settings = settingsFromRow(await deps.db.getChatSettings(chatId));
   const resolvedSystemPrompt = await resolveSystemPrompt(deps.db, settings, tenantId);
   const resolvedPrompt = await deps.withResponseCardFormatPolicy(resolvedSystemPrompt.content);

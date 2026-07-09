@@ -56,7 +56,10 @@ export async function routeModel(
   blockedProviders?: Set<string>,
 ): Promise<{ provider: string; modelId: string; taskKey?: string; inferenceSource?: string; experimentId?: string; experimentName?: string } | null> {
   try {
-    const policies = await db.listRoutingPolicies();
+    // Tenancy Realm (m158): resolve the tenant-EFFECTIVE routing policies (a tenant's fork + shared
+    // ancestors + globals, nearest-owner-wins) so a tenant's customized routing policy applies only to
+    // that tenant and no fork leaks in. Null tenant → globals only (the pre-realm behaviour).
+    const policies = await db.resolveTenantEffectiveRoutingPolicies(opts?.tenantId ?? null);
     const active = policies.find(p => p.enabled);
     if (!active) return null;
 

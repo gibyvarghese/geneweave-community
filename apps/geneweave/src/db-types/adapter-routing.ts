@@ -20,6 +20,10 @@ export interface IRoutingStore {
   listRoutingPolicies(): Promise<RoutingPolicyRow[]>;
   updateRoutingPolicy(id: string, fields: Partial<Omit<RoutingPolicyRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deleteRoutingPolicy(id: string): Promise<void>;
+  /** Tenancy Realm (m158) — insert a fully-formed realm routing-policy row (a tenant fork), realm columns included. */
+  insertRealmRoutingPolicyRow(r: Omit<RoutingPolicyRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm (m158) — the effective routing-policy set for a tenant (its forks + shared ancestors + globals, nearest-owner-wins). Null tenant = globals only. */
+  resolveTenantEffectiveRoutingPolicies(tenantId: string | null): Promise<RoutingPolicyRow[]>;
 
   // Task types
   listTaskTypes(): Promise<TaskTypeDefinitionRow[]>;

@@ -11,6 +11,9 @@ import type { PgCtx } from '../db-postgres-ctx.js';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type { CostPolicyRow } from '../db-types/cost-governor.js';
 import type { ToolEmbeddingRow } from '../db-types/tools.js';
+import type { SqlClient } from '@weaveintel/realm';
+import { buildTenantContext } from '../realm-hierarchy.js';
+import { resolveTenantEffectiveCostPolicies as resolveEffectiveCost } from '../cost-policy-realm.js';
 
 export function pgCostStore(ctx: PgCtx): Partial<DatabaseAdapter> {
   return {
@@ -31,6 +34,38 @@ export function pgCostStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     async getCostPolicyByKey(key: string): Promise<CostPolicyRow | null> {
       const { rows } = await ctx.query('SELECT * FROM cost_policies WHERE key = $1', [key]);
       return (rows[0] as CostPolicyRow | undefined) ?? null;
+    },
+
+    async insertRealmCostPolicyRow(p: Omit<CostPolicyRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO cost_policies (id, key, tier, levers_json, description, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          p.id, p.key, p.tier, p.levers_json ?? null, p.description ?? null, p.enabled,
+          p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
+          p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectiveCostPolicies(tenantId: string | null): Promise<CostPolicyRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM cost_policies ORDER BY key COLLATE "C" ASC', []);
+      const all = rows as unknown as CostPolicyRow[];
+      if (!tenantId) return all.filter((p) => (p.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveCost(all, tenantId, context);
+    },
+
+    async getEffectiveCostPolicyByKey(logicalKey: string, tenantId: string | null): Promise<CostPolicyRow | null> {
+      if (!tenantId) {
+        const { rows } = await ctx.query('SELECT * FROM cost_policies WHERE key = $1', [logicalKey]);
+        return (rows[0] as CostPolicyRow | undefined) ?? null;
+      }
+      const { rows } = await ctx.query('SELECT * FROM cost_policies ORDER BY key COLLATE "C" ASC', []);
+      const all = rows as unknown as CostPolicyRow[];
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      const effective = resolveEffectiveCost(all, tenantId, context);
+      return effective.find((p) => (p.logical_key ?? p.key) === logicalKey) ?? null;
     },
 
     async listCostPolicies(opts?: { enabledOnly?: boolean }): Promise<CostPolicyRow[]> {

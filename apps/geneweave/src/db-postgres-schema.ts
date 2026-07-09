@@ -674,6 +674,14 @@ CREATE TABLE IF NOT EXISTS "cost_policies" (
   "enabled" BIGINT NOT NULL DEFAULT 1,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
   PRIMARY KEY ("id")
 );
 
@@ -2669,6 +2677,14 @@ CREATE TABLE IF NOT EXISTS "routing_policies" (
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "fallback_chain" TEXT,
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
   PRIMARY KEY ("id")
 );
 
