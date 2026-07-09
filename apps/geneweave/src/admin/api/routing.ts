@@ -2,6 +2,7 @@ import { newUUIDv7 } from '@weaveintel/core';
 import type { DatabaseAdapter } from '../../db.js';
 import type { RoutingPolicyRow } from '../../db-types.js';
 import type { RouterLike, AdminHelpers } from './types.js';
+import { buildTenantRoutingPolicyFork } from '../../routing-policy-realm.js';
 
 /**
  * Register routing policy admin routes
@@ -20,10 +21,13 @@ export function registerRoutingRoutes(
 ): void {
   const { json, readBody } = helpers;
 
-  router.get('/api/admin/routing', async (_req, res, _params, auth) => {
+  // List all policies, OR — with ?tenantId= — the EFFECTIVE routing-policy set for that tenant (its own
+  // forks + a parent org's shared forks + the globals, nearest-owner-wins).
+  router.get('/api/admin/routing', async (req, res, _params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
-    const policies = await db.listRoutingPolicies();
-    json(res, 200, { policies });
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const policies = tenantId ? await db.resolveTenantEffectiveRoutingPolicies(tenantId) : await db.listRoutingPolicies();
+    json(res, 200, { policies, ...(tenantId ? { tenantId } : {}) });
   }, { auth: true });
 
   router.get('/api/admin/routing/:id', async (_req, res, params, auth) => {
@@ -32,6 +36,63 @@ export function registerRoutingRoutes(
     if (!p) { json(res, 404, { error: 'Routing policy not found' }); return; }
     json(res, 200, { policy: p });
   }, { auth: true });
+
+  // ── Admin: Tenancy Realm — per-tenant routing-policy customization (content fork) ────────────────
+  const ROUTING_OVERRIDE_KEYS = ['description', 'strategy', 'constraints', 'weights', 'fallback_model', 'fallback_provider', 'fallback_chain', 'share_mode'] as const;
+  const JSON_ROUTING_KEYS = new Set(['constraints', 'weights', 'fallback_chain']);
+
+  // Who-gets-what for a tenant: the effective policy + where it came from.
+  router.get('/api/admin/routing/:id/realm', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const base = await db.getRoutingPolicy(params['id']!);
+    if (!base) { json(res, 404, { error: 'Routing policy not found' }); return; }
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const logicalKey = base.logical_key ?? base.name;
+    const effective = tenantId
+      ? (await db.resolveTenantEffectiveRoutingPolicies(tenantId)).find((p) => (p.logical_key ?? p.name) === logicalKey) ?? base
+      : base;
+    const kind = effective.realm === 'tenant' ? (effective.owner_tenant_id === tenantId ? 'own_override' : 'inherited') : 'global';
+    json(res, 200, { effective, provenance: { kind }, tenantId });
+  }, { auth: true });
+
+  // Create/replace a tenant's fork of this global routing policy.
+  router.post('/api/admin/routing/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getRoutingPolicy(params['id']!);
+    if (!global) { json(res, 404, { error: 'Routing policy not found' }); return; }
+    if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global policy, not an existing tenant copy' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const tenantId = body['tenantId'];
+    if (typeof tenantId !== 'string' || !tenantId.trim()) { json(res, 400, { error: 'tenantId required' }); return; }
+    const overrides: Record<string, unknown> = {};
+    for (const k of ROUTING_OVERRIDE_KEYS) {
+      if (body[k] === undefined) continue;
+      overrides[k] = (JSON_ROUTING_KEYS.has(k) && body[k] !== null && typeof body[k] === 'object') ? JSON.stringify(body[k]) : body[k];
+    }
+    const logicalKey = global.logical_key ?? global.name;
+    const existing = (await db.listRoutingPolicies()).find((p) => p.realm === 'tenant' && p.owner_tenant_id === tenantId && (p.logical_key ?? p.name) === logicalKey);
+    if (existing) await db.deleteRoutingPolicy(existing.id);
+    const fork = buildTenantRoutingPolicyFork(global, tenantId, overrides as Parameters<typeof buildTenantRoutingPolicyFork>[2]);
+    await db.insertRealmRoutingPolicyRow(fork);
+    const saved = await db.getRoutingPolicy(fork.id);
+    json(res, 201, { fork: saved, replacedExisting: Boolean(existing) });
+  }, { auth: true, csrf: true });
+
+  // Revert: drop a tenant's routing-policy fork so it falls back to the global built-in.
+  router.del('/api/admin/routing/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getRoutingPolicy(params['id']!);
+    if (!global) { json(res, 404, { error: 'Routing policy not found' }); return; }
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    const logicalKey = global.logical_key ?? global.name;
+    const fork = (await db.listRoutingPolicies()).find((p) => p.realm === 'tenant' && p.owner_tenant_id === tenantId && (p.logical_key ?? p.name) === logicalKey);
+    if (!fork) { json(res, 404, { error: 'No customization for this tenant' }); return; }
+    await db.deleteRoutingPolicy(fork.id);
+    json(res, 200, { ok: true, reverted: fork.id });
+  }, { auth: true, csrf: true });
 
   router.post('/api/admin/routing', async (req, res, _params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }

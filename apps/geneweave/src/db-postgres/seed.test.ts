@@ -37,6 +37,8 @@ import { buildTenantWorkerAgentFork, workerContentHash } from '../worker-agent-r
 import { buildTenantGuardrailFork, guardrailContentHash } from '../guardrail-realm.js';
 import { buildTenantToolPolicyFork, toolPolicyContentHash } from '../tool-policy-realm.js';
 import type { ToolPolicyRow } from '../db-types/tools.js';
+import { buildTenantRoutingPolicyFork, routingContentHash } from '../routing-policy-realm.js';
+import { buildTenantCostPolicyFork, costContentHash } from '../cost-policy-realm.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
 const home = process.env['HOME'] ?? '';
@@ -99,8 +101,9 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
   // ── Exact SQLite parity — tables both backends seed from an empty baseline ──
 
   it('cost policies: identical key sets and count (both seed from empty)', async () => {
-    const s = await sq.listCostPolicies();
-    const p = await pg.listCostPolicies();
+    // Scope to global originals — the m158 realm test inserts per-tenant forks into this shared table.
+    const s = (await sq.listCostPolicies()).filter((r) => (r.realm ?? 'global') === 'global');
+    const p = (await pg.listCostPolicies()).filter((r) => (r.realm ?? 'global') === 'global');
     expect(p.length).toBe(s.length);
     expect(p.length).toBeGreaterThan(0);
     expect(sortedKeys(p, (r) => r.key)).toEqual(sortedKeys(s, (r) => r.key));
@@ -233,6 +236,51 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     }
   });
 
+  it('realm columns on routing_policies + cost_policies (m158): built-ins are global originals whose backfilled content_hash matches the canonical JS hash on BOTH engines, and a fork resolves per tenant', async () => {
+    // Both tables are seeded from empty on BOTH engines, so the backfill runs on identical rows.
+    // Assert each engine's backfill == the canonical JS hash, and cross-engine hashes match by key.
+    for (const db of [pg, sq]) {
+      const routing = (await db.listRoutingPolicies()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(routing.length).toBeGreaterThan(0);
+      for (const r of routing) {
+        expect(r.logical_key, `routing logical_key ${r.name}`).toBe(r.name);
+        expect(r.content_hash, `routing backfill==JS hash ${r.name}`).toBe(routingContentHash(r));
+        expect(r.origin_hash, `routing origin_hash ${r.name}`).toBe(r.content_hash);
+      }
+      const cost = (await db.listCostPolicies()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(cost.length).toBeGreaterThan(0);
+      for (const c of cost) {
+        expect(c.logical_key, `cost logical_key ${c.key}`).toBe(c.key);
+        expect(c.content_hash, `cost backfill==JS hash ${c.key}`).toBe(costContentHash(c));
+        expect(c.origin_hash, `cost origin_hash ${c.key}`).toBe(c.content_hash);
+      }
+    }
+    // Cross-engine content_hash matches by logical key (both engines seed the same built-ins).
+    const rBy = new Map((await sq.listRoutingPolicies()).map((r) => [r.logical_key ?? r.name, r.content_hash]));
+    for (const r of (await pg.listRoutingPolicies())) expect(rBy.get(r.logical_key ?? r.name), `x-engine routing ${r.name}`).toBe(r.content_hash);
+    const cBy = new Map((await sq.listCostPolicies()).map((c) => [c.logical_key ?? c.key, c.content_hash]));
+    for (const c of (await pg.listCostPolicies())) expect(cBy.get(c.logical_key ?? c.key), `x-engine cost ${c.key}`).toBe(c.content_hash);
+
+    // A fork of each resolves for its tenant on both engines; other tenants keep the global.
+    for (const db of [pg, sq]) {
+      const rg = (await db.listRoutingPolicies()).find((x) => (x.realm ?? 'global') === 'global')!;
+      await db.insertRealmRoutingPolicyRow(buildTenantRoutingPolicyFork(rg, 'rc-acme', { strategy: 'ACME_STRAT' }));
+      const rForAcme = (await db.resolveTenantEffectiveRoutingPolicies('rc-acme')).find((x) => (x.logical_key ?? x.name) === (rg.logical_key ?? rg.name))!;
+      expect(rForAcme.strategy).toBe('ACME_STRAT');
+      expect(rForAcme.name).toBe(rg.name);
+      const rForGlobex = (await db.resolveTenantEffectiveRoutingPolicies('rc-globex')).find((x) => (x.logical_key ?? x.name) === (rg.logical_key ?? rg.name))!;
+      expect(rForGlobex.strategy).not.toBe('ACME_STRAT');
+
+      const cg = (await db.getCostPolicyByKey('balanced'))!;
+      await db.insertRealmCostPolicyRow(buildTenantCostPolicyFork(cg, 'rc-acme', { tier: 'economy' }));
+      const cForAcme = await db.getEffectiveCostPolicyByKey('balanced', 'rc-acme');
+      expect(cForAcme!.tier).toBe('economy');
+      expect(cForAcme!.key).toBe('balanced'); // canonical key restored (UNIQUE(key) kept via key#tenant)
+      const cForGlobex = await db.getEffectiveCostPolicyByKey('balanced', 'rc-globex');
+      expect(cForGlobex!.tier).toBe(cg.tier);
+    }
+  });
+
   it('realm hierarchy (Phase 4): a real lineage + share blast radius resolve identically on both engines', async () => {
     const { createSqlTenantHierarchy } = await import('@weaveintel/identity');
     for (const [db, client] of [
@@ -318,8 +366,10 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
   });
 
   it('routing policies: identical id sets and count (both seed from empty)', async () => {
-    const s = await sq.listRoutingPolicies();
-    const p = await pg.listRoutingPolicies();
+    // Scope to global originals — the m158 realm test inserts per-tenant forks (with per-engine UUIDs)
+    // into this shared table, so only the seeded globals are comparable across engines.
+    const s = (await sq.listRoutingPolicies()).filter((r) => (r.realm ?? 'global') === 'global');
+    const p = (await pg.listRoutingPolicies()).filter((r) => (r.realm ?? 'global') === 'global');
     expect(p.length).toBe(s.length);
     expect(p.length).toBeGreaterThan(0);
     expect(sortedKeys(p, (r) => r.id)).toEqual(sortedKeys(s, (r) => r.id));

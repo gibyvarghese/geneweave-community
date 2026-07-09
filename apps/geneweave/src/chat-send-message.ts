@@ -204,7 +204,10 @@ export async function sendMessageImpl(
   let providerCfg = deps.config.providers[provider];
   let routingInfo: { provider: string; model: string; reason: string } | undefined;
 
-  const routed = await routeModel(deps.db, await deps.getAvailableModels(), deps.healthTracker.listHealth(), { ...opts, prompt: content }, deps.healthTracker.getBlockedProviders());
+  // Fetch the actor up front so the request's tenant can drive tenant-effective routing (m158).
+  const actor = await deps.db.getUserById(userId);
+  const tenantId = actor?.tenant_id ?? null;
+  const routed = await routeModel(deps.db, await deps.getAvailableModels(), deps.healthTracker.listHealth(), { ...opts, prompt: content, tenantId }, deps.healthTracker.getBlockedProviders());
   if (routed && deps.config.providers[routed.provider]) {
     provider = routed.provider;
     modelId = routed.modelId;
@@ -225,9 +228,7 @@ export async function sendMessageImpl(
   }
 
   const model = await getOrCreateModel(provider, modelId, providerCfg);
-  const actor = await deps.db.getUserById(userId);
   const userPersona = normalizePersona(actor?.persona, 'user');
-  const tenantId = actor?.tenant_id ?? null;
   const chatSettingsRow = await deps.db.getChatSettings(chatId);
   const settings = settingsFromRow(chatSettingsRow);
   // Programmatic callers (A2A, automation) can override the mode after settings are

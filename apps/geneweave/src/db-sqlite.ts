@@ -10,6 +10,9 @@ import { resolveTenantEffectiveWorkerAgents } from './worker-agent-realm.js';
 import { applyM156RealmColumnsGuardrails } from './migrations/m156-realm-columns-guardrails.js';
 import { resolveTenantEffectiveGuardrails } from './guardrail-realm.js';
 import { resolveTenantEffectiveToolPolicies } from './tool-policy-realm.js';
+import { applyM158RealmColumnsRoutingCost } from './migrations/m158-realm-columns-routing-cost.js';
+import { resolveTenantEffectiveRoutingPolicies } from './routing-policy-realm.js';
+import { resolveTenantEffectiveCostPolicies } from './cost-policy-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from './realm-tenant-state.js';
 import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from './realm-hierarchy.js';
@@ -1689,6 +1692,25 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async listRoutingPolicies(): Promise<RoutingPolicyRow[]> {
     return this.d.prepare('SELECT * FROM routing_policies ORDER BY name ASC').all() as RoutingPolicyRow[];
+  }
+
+  async insertRealmRoutingPolicyRow(r: Omit<RoutingPolicyRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO routing_policies (id, name, description, strategy, constraints, weights, fallback_model, fallback_provider, fallback_chain, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      r.id, r.name, r.description ?? null, r.strategy, r.constraints ?? null, r.weights ?? null,
+      r.fallback_model ?? null, r.fallback_provider ?? null, r.fallback_chain ?? null, r.enabled,
+      r.realm ?? 'tenant', r.owner_tenant_id ?? null, r.logical_key ?? null, r.origin_id ?? null,
+      r.origin_hash ?? null, r.content_hash ?? '', r.track_mode ?? 'pin', r.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectiveRoutingPolicies(tenantId: string | null): Promise<RoutingPolicyRow[]> {
+    const all = await this.listRoutingPolicies();
+    if (!tenantId) return all.filter((p) => (p.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectiveRoutingPolicies(all, tenantId, ctx);
   }
 
   async updateRoutingPolicy(id: string, fields: Partial<Omit<RoutingPolicyRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void> {
@@ -3380,6 +3402,30 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getCostPolicyByKey(key: string): Promise<CostPolicyRow | null> {
     return (this.d.prepare('SELECT * FROM cost_policies WHERE key = ?').get(key) as CostPolicyRow | undefined) ?? null;
+  }
+
+  async insertRealmCostPolicyRow(p: Omit<CostPolicyRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO cost_policies (id, key, tier, levers_json, description, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      p.id, p.key, p.tier, p.levers_json ?? null, p.description ?? null, p.enabled,
+      p.realm ?? 'tenant', p.owner_tenant_id ?? null, p.logical_key ?? null, p.origin_id ?? null,
+      p.origin_hash ?? null, p.content_hash ?? '', p.track_mode ?? 'pin', p.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectiveCostPolicies(tenantId: string | null): Promise<CostPolicyRow[]> {
+    const all = await this.listCostPolicies();
+    if (!tenantId) return all.filter((p) => (p.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectiveCostPolicies(all, tenantId, ctx);
+  }
+
+  async getEffectiveCostPolicyByKey(logicalKey: string, tenantId: string | null): Promise<CostPolicyRow | null> {
+    if (!tenantId) return this.getCostPolicyByKey(logicalKey);
+    const effective = await this.resolveTenantEffectiveCostPolicies(tenantId);
+    return effective.find((p) => (p.logical_key ?? p.key) === logicalKey) ?? null;
   }
 
   async listCostPolicies(opts?: { enabledOnly?: boolean }): Promise<CostPolicyRow[]> {
@@ -7425,6 +7471,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // Same for guardrails (m156): classify the just-seeded built-in guardrails as global-realm
     // originals so a tenant can fork one. Idempotent; only fills empty logical_key/content_hash.
     applyM156RealmColumnsGuardrails(this.d);
+    // Same for routing_policies + cost_policies (m158): both are seeded in seedDefaultData (above),
+    // AFTER migrations, so re-run the idempotent backfill to classify them as global-realm originals.
+    applyM158RealmColumnsRoutingCost(this.d);
   }
 
   /**

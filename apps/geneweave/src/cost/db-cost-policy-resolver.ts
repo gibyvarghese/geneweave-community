@@ -67,8 +67,15 @@ export class DbCostPolicyResolver implements CostPolicyResolver {
         if (!ref) return null;
         const match = resolveCapabilityBinding(bindings, kind, ref, 'cost_policy');
         if (!match) return null;
-        const policyRow = await this.db.getCostPolicy(match.policyRef);
-        if (!policyRow || policyRow.enabled !== 1) return null;
+        const boundRow = await this.db.getCostPolicy(match.policyRef);
+        if (!boundRow) return null;
+        // Tenancy Realm (m158): if the bound policy is a GLOBAL original and this tenant has forked it,
+        // resolve the tenant's forked copy (its customized tier/levers) instead. No tenant, or no fork →
+        // the bound row unchanged.
+        const policyRow = ctx.tenantId
+          ? (await this.db.getEffectiveCostPolicyByKey(boundRow.logical_key ?? boundRow.key, ctx.tenantId)) ?? boundRow
+          : boundRow;
+        if (policyRow.enabled !== 1) return null;
         const policy = costPolicyFromRow(policyRow);
         return {
           policy,

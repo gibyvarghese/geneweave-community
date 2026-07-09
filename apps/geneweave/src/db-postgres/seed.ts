@@ -2503,6 +2503,15 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       await ctx.query(`UPDATE tool_policies SET logical_key = key WHERE logical_key IS NULL OR logical_key = ''`);
       await backfillRealmContentHash(ctx, 'tool_policies', ['description', 'applies_to', 'applies_to_risk_levels', 'approval_required', 'allowed_risk_levels', 'max_execution_ms', 'rate_limit_per_minute', 'max_concurrent', 'require_dry_run', 'log_input_output', 'persona_scope', 'active_hours_utc', 'expires_at']);
       await ctx.query(`UPDATE tool_policies SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      // ─── Tenancy Realm — realm columns on routing_policies + cost_policies (mirror of m158 + SQLite) ───
+      // Both tables are seeded above from empty on Postgres; classify each as a global-realm original.
+      // routing_policies: logical_key = name (no UNIQUE). cost_policies: logical_key = key (UNIQUE).
+      await ctx.query(`UPDATE routing_policies SET logical_key = name WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'routing_policies', ['description', 'strategy', 'constraints', 'weights', 'fallback_model', 'fallback_provider', 'fallback_chain']);
+      await ctx.query(`UPDATE routing_policies SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      await ctx.query(`UPDATE cost_policies SET logical_key = key WHERE logical_key IS NULL OR logical_key = ''`);
+      await backfillRealmContentHash(ctx, 'cost_policies', ['tier', 'levers_json', 'description']);
+      await ctx.query(`UPDATE cost_policies SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
     },
   };
 }

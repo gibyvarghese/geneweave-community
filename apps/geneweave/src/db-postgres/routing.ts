@@ -17,6 +17,7 @@ import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type { SqlClient } from '@weaveintel/realm';
 import { buildTenantContext } from '../realm-hierarchy.js';
 import { resolveTenantEffectiveGuardrails as resolveEffectiveGuardrails } from '../guardrail-realm.js';
+import { resolveTenantEffectiveRoutingPolicies as resolveEffectiveRouting } from '../routing-policy-realm.js';
 import type {
   GuardrailRow,
   GuardrailRevisionRow,
@@ -137,6 +138,27 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     async listRoutingPolicies(): Promise<RoutingPolicyRow[]> {
       const { rows } = await ctx.query('SELECT * FROM routing_policies ORDER BY name COLLATE "C" ASC', []);
       return rows as unknown as RoutingPolicyRow[];
+    },
+
+    async insertRealmRoutingPolicyRow(r: Omit<RoutingPolicyRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO routing_policies (id, name, description, strategy, constraints, weights, fallback_model, fallback_provider, fallback_chain, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+        [
+          r.id, r.name, r.description ?? null, r.strategy, r.constraints ?? null, r.weights ?? null,
+          r.fallback_model ?? null, r.fallback_provider ?? null, r.fallback_chain ?? null, r.enabled,
+          r.realm ?? 'tenant', r.owner_tenant_id ?? null, r.logical_key ?? null, r.origin_id ?? null,
+          r.origin_hash ?? null, r.content_hash ?? '', r.track_mode ?? 'pin', r.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    async resolveTenantEffectiveRoutingPolicies(tenantId: string | null): Promise<RoutingPolicyRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM routing_policies ORDER BY name COLLATE "C" ASC', []);
+      const all = rows as unknown as RoutingPolicyRow[];
+      if (!tenantId) return all.filter((p) => (p.realm ?? 'global') === 'global');
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveRouting(all, tenantId, context);
     },
 
     async updateRoutingPolicy(id: string, fields: Partial<Omit<RoutingPolicyRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void> {
