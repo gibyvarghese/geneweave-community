@@ -125,7 +125,10 @@ export function geneweaveGuardrailsSlot(
     try {
       const rows = await db.listGuardrails();
       return rows
-        .filter((r) => r.enabled && r.type !== 'escalation_policy' && stageMatches(r.stage, stage))
+        // Tenancy Realm (m156): this runtime slot has no tenant context, so apply only GLOBAL
+        // guardrails here — a tenant's forked copy must never leak across tenants. Per-tenant
+        // guardrail resolution happens in the chat path (evaluateGuardrails, which has tenantId).
+        .filter((r) => (r.realm ?? 'global') === 'global' && r.enabled && r.type !== 'escalation_policy' && stageMatches(r.stage, stage))
         .map((r) => normalizeGuardrail(r, stage));
     } catch {
       return [];

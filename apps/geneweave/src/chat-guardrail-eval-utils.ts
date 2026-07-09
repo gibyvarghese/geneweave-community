@@ -155,7 +155,10 @@ export async function evaluateGuardrails(
   error?: string;
 }> {
   try {
-    const rows = await db.listGuardrails();
+    // Tenancy Realm (m156): resolve the tenant-EFFECTIVE guardrail set (a tenant's forks + shared
+    // ancestors + globals, nearest-owner-wins) so a tenant's customized guardrail applies only to
+    // that tenant and other tenants' forks never leak in. Null tenant → globals only.
+    const rows = await db.resolveTenantEffectiveGuardrails(opts?.tenantId ?? null);
     const guardrailRows = rows.filter(r => r.enabled && r.type !== 'escalation_policy' && stageMatches(r.stage, stage));
     const escalationRows = rows.filter(r => r.enabled && r.type === 'escalation_policy');
 

@@ -4,6 +4,8 @@
  * Concrete DatabaseAdapter backed by better-sqlite3.
  */
 import { applyM151RealmColumns } from './migrations/m151-realm-columns.js';
+import { applyM156RealmColumnsGuardrails } from './migrations/m156-realm-columns-guardrails.js';
+import { resolveTenantEffectiveGuardrails } from './guardrail-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from './realm-tenant-state.js';
 import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from './realm-hierarchy.js';
@@ -1529,6 +1531,25 @@ export class SQLiteAdapter implements DatabaseAdapter {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(g.id, g.name, g.description ?? null, g.type, g.stage, g.config ?? null, g.priority, g.enabled,
       g.trigger_conditions ?? null, g.trigger_description ?? null);
+  }
+
+  async insertRealmGuardrailRow(g: Omit<GuardrailRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO guardrails (id, name, description, type, stage, config, priority, enabled, trigger_conditions, trigger_description, judge_model, compliance_framework, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      g.id, g.name, g.description ?? null, g.type, g.stage, g.config ?? null, g.priority, g.enabled,
+      g.trigger_conditions ?? null, g.trigger_description ?? null, g.judge_model ?? null, g.compliance_framework ?? null,
+      g.realm ?? 'tenant', g.owner_tenant_id ?? null, g.logical_key ?? null, g.origin_id ?? null,
+      g.origin_hash ?? null, g.content_hash ?? '', g.track_mode ?? 'pin', g.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectiveGuardrails(tenantId: string | null): Promise<GuardrailRow[]> {
+    const all = await this.listGuardrails();
+    if (!tenantId) return all.filter((g) => (g.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectiveGuardrails(all, tenantId, ctx);
   }
 
   async getGuardrail(id: string): Promise<GuardrailRow | null> {
@@ -7332,6 +7353,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // above. Re-running the (idempotent) migration backfills logical_key + content_hash for the
     // freshly-seeded rows too. Guarded ALTERs are skipped; only empty content_hashes are filled.
     applyM151RealmColumns(this.d);
+    // Same for guardrails (m156): classify the just-seeded built-in guardrails as global-realm
+    // originals so a tenant can fork one. Idempotent; only fills empty logical_key/content_hash.
+    applyM156RealmColumnsGuardrails(this.d);
   }
 
   /**

@@ -881,6 +881,14 @@ CREATE TABLE IF NOT EXISTS "guardrails" (
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "judge_model" TEXT,
   "compliance_framework" TEXT,
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
   PRIMARY KEY ("id")
 );
 
