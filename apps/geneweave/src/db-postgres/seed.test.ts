@@ -39,6 +39,8 @@ import { buildTenantToolPolicyFork, toolPolicyContentHash } from '../tool-policy
 import type { ToolPolicyRow } from '../db-types/tools.js';
 import { buildTenantRoutingPolicyFork, routingContentHash } from '../routing-policy-realm.js';
 import { buildTenantCostPolicyFork, costContentHash } from '../cost-policy-realm.js';
+import { buildTenantPromptStrategyFork, promptStrategyContentHash, promptFrameworkContentHash, buildTenantPromptContractFork } from '../prompt-catalog-realm.js';
+import type { PromptContractRow } from '../db-types/prompts.js';
 
 // ── Environment detection ────────────────────────────────────────────────────
 const home = process.env['HOME'] ?? '';
@@ -278,6 +280,54 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
       expect(cForAcme!.key).toBe('balanced'); // canonical key restored (UNIQUE(key) kept via key#tenant)
       const cForGlobex = await db.getEffectiveCostPolicyByKey('balanced', 'rc-globex');
       expect(cForGlobex!.tier).toBe(cg.tier);
+    }
+  });
+
+  it('realm columns on prompt catalog (m159): strategies/frameworks backfill == canonical JS hash on BOTH engines (+ x-engine match); strategy + contract forks resolve per tenant', async () => {
+    for (const db of [pg, sq]) {
+      const strategies = (await db.listPromptStrategies()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(strategies.length).toBeGreaterThan(0);
+      for (const s of strategies) {
+        expect(s.logical_key, `strategy logical_key ${s.key}`).toBe(s.key);
+        expect(s.content_hash, `strategy backfill==JS hash ${s.key}`).toBe(promptStrategyContentHash(s));
+        expect(s.origin_hash, `strategy origin_hash ${s.key}`).toBe(s.content_hash);
+      }
+      const frameworks = (await db.listPromptFrameworks()).filter((x) => (x.realm ?? 'global') === 'global');
+      expect(frameworks.length).toBeGreaterThan(0);
+      for (const f of frameworks) {
+        expect(f.logical_key, `framework logical_key ${f.key}`).toBe(f.key);
+        expect(f.content_hash, `framework backfill==JS hash ${f.key}`).toBe(promptFrameworkContentHash(f));
+      }
+    }
+    const sBy = new Map((await sq.listPromptStrategies()).map((s) => [s.logical_key ?? s.key, s.content_hash]));
+    for (const s of (await pg.listPromptStrategies())) expect(sBy.get(s.logical_key ?? s.key), `x-engine strategy ${s.key}`).toBe(s.content_hash);
+    const fBy = new Map((await sq.listPromptFrameworks()).map((f) => [f.logical_key ?? f.key, f.content_hash]));
+    for (const f of (await pg.listPromptFrameworks())) expect(fBy.get(f.logical_key ?? f.key), `x-engine framework ${f.key}`).toBe(f.content_hash);
+
+    for (const db of [pg, sq]) {
+      const sg = (await db.listPromptStrategies()).find((x) => (x.realm ?? 'global') === 'global')!;
+      await db.insertRealmPromptStrategyRow(buildTenantPromptStrategyFork(sg, 'pc-acme', { instruction_prefix: 'ACME_PFX' }));
+      const sForAcme = (await db.resolveTenantEffectivePromptStrategies('pc-acme')).find((x) => (x.logical_key ?? x.key) === (sg.logical_key ?? sg.key))!;
+      expect(sForAcme.instruction_prefix).toBe('ACME_PFX');
+      expect(sForAcme.key).toBe(sg.key);
+      const sForGlobex = (await db.resolveTenantEffectivePromptStrategies('pc-globex')).find((x) => (x.logical_key ?? x.key) === (sg.logical_key ?? sg.key))!;
+      expect(sForGlobex.instruction_prefix).not.toBe('ACME_PFX');
+
+      const suffix = db === pg ? 'pg' : 'sq';
+      const cKey = `pc_contract_${suffix}`;
+      const globalC: Omit<PromptContractRow, 'created_at' | 'updated_at'> = {
+        id: `pcc-${suffix}`, key: cKey, name: 'C', description: null, contract_type: 'max_length', schema: null,
+        config: JSON.stringify({ maxCharacters: 10 }), enabled: 1, realm: 'global', owner_tenant_id: null,
+        logical_key: cKey, origin_id: null, origin_hash: '', content_hash: '', track_mode: 'pin', share_mode: 'private',
+      };
+      await db.insertRealmPromptContractRow(globalC);
+      const cg = (await db.getPromptContractByKey(cKey))!;
+      await db.insertRealmPromptContractRow(buildTenantPromptContractFork(cg, 'pc-acme', { config: JSON.stringify({ maxCharacters: 999 }) }));
+      const cForAcme = (await db.resolveTenantEffectivePromptContracts('pc-acme')).find((x) => (x.logical_key ?? x.key) === cKey)!;
+      expect(cForAcme.config).toContain('999');
+      expect(cForAcme.key).toBe(cKey);
+      const cForGlobex = (await db.resolveTenantEffectivePromptContracts('pc-globex')).find((x) => (x.logical_key ?? x.key) === cKey)!;
+      expect(cForGlobex.config).not.toContain('999');
     }
   });
 

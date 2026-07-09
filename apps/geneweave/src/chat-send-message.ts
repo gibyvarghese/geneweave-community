@@ -709,7 +709,7 @@ export async function sendMessageImpl(
     await semanticStore(deps.semanticCache, semanticCfg, processedContent, { content: assistantContent, usage }, tenantId, userId);
   }
 
-  contractInfo = await validatePromptContractsAgainstDb(assistantContent, deps.db);
+  contractInfo = await validatePromptContractsAgainstDb(assistantContent, deps.db, tenantId);
 
   const latencyMs = Date.now() - startMs;
   const dbPricing = await deps.loadPricing();

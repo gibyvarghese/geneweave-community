@@ -695,7 +695,7 @@ import { validatePromptContractsAgainstDb } from './chat-prompt-contract-utils.j
 describe('M-31: validatePromptContractsAgainstDb error vs no-contracts', () => {
   it('returns report with validationError when DB throws', async () => {
     const brokenDb = {
-      listPromptContracts: async () => { throw new Error('DB connection lost'); },
+      resolveTenantEffectivePromptContracts: async () => { throw new Error('DB connection lost'); },
     };
     const result = await validatePromptContractsAgainstDb(
       'some output',
@@ -710,7 +710,7 @@ describe('M-31: validatePromptContractsAgainstDb error vs no-contracts', () => {
   });
 
   it('returns undefined for empty output (fast path, not an error)', async () => {
-    const mockDb = { listPromptContracts: async () => [] };
+    const mockDb = { resolveTenantEffectivePromptContracts: async () => [] };
     const result = await validatePromptContractsAgainstDb(
       '   ',
       mockDb as unknown as Parameters<typeof validatePromptContractsAgainstDb>[1],
@@ -720,7 +720,7 @@ describe('M-31: validatePromptContractsAgainstDb error vs no-contracts', () => {
 
   it('returns undefined when no enabled contracts exist', async () => {
     const mockDb = {
-      listPromptContracts: async () => [{ id: 'c1', key: 'k1', name: 'N1', enabled: false,
+      resolveTenantEffectivePromptContracts: async () => [{ id: 'c1', key: 'k1', name: 'N1', enabled: false,
         contract_type: 'json_schema', schema_json: null, required_substrings: null,
         required_patterns: null, created_at: '', updated_at: '' }],
     };

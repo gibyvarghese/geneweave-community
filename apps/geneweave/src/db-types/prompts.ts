@@ -44,6 +44,15 @@ export interface PromptFrameworkRow {
   sections: string;               // JSON: PromptFrameworkSectionDef[]
   section_separator: string;      // Separator between assembled sections (default '\n\n')
   enabled: number;
+  // ── Tenancy Realm (m159) — present on every row via SELECT *; built-ins are realm='global' ──
+  realm?: string;
+  owner_tenant_id?: string | null;
+  logical_key?: string | null;    // = the framework's canonical key; shared by a global + its tenant forks
+  origin_id?: string | null;
+  origin_hash?: string | null;
+  content_hash?: string;
+  track_mode?: string;
+  share_mode?: string;
   created_at: string;
   updated_at: string;
 }
@@ -81,6 +90,15 @@ export interface PromptContractRow {
   schema: string | null;          // JSON: JSONSchema7 (for json contracts)
   config: string;                 // JSON: Contract-specific config (severity, repairHook, constraints, etc.)
   enabled: number;
+  // ── Tenancy Realm (m159) — present on every row via SELECT *; built-ins are realm='global' ──
+  realm?: string;
+  owner_tenant_id?: string | null;
+  logical_key?: string | null;    // = the contract's canonical key; shared by a global + its tenant forks
+  origin_id?: string | null;
+  origin_hash?: string | null;
+  content_hash?: string;
+  track_mode?: string;
+  share_mode?: string;
   created_at: string;
   updated_at: string;
 }
@@ -98,6 +116,15 @@ export interface PromptStrategyRow {
   instruction_suffix: string | null;
   config: string;                 // JSON object for strategy runtime options
   enabled: number;
+  // ── Tenancy Realm (m159) — present on every row via SELECT *; built-ins are realm='global' ──
+  realm?: string;
+  owner_tenant_id?: string | null;
+  logical_key?: string | null;    // = the strategy's canonical key; shared by a global + its tenant forks
+  origin_id?: string | null;
+  origin_hash?: string | null;
+  content_hash?: string;
+  track_mode?: string;
+  share_mode?: string;
   created_at: string;
   updated_at: string;
 }

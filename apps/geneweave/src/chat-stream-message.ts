@@ -1084,7 +1084,7 @@ export async function streamMessageImpl(
     await deps.writeSseEvent(res, { type: 'eval_error', error: evalError });
   }
 
-  streamContractInfo = await validatePromptContractsAgainstDb(fullText, deps.db);
+  streamContractInfo = await validatePromptContractsAgainstDb(fullText, deps.db, tenantId);
   if (streamContractInfo) {
     await deps.writeSseEvent(res, { type: 'contracts', ...streamContractInfo });
   }

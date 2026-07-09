@@ -10,7 +10,9 @@ import { resolveTenantEffectiveWorkerAgents } from './worker-agent-realm.js';
 import { applyM156RealmColumnsGuardrails } from './migrations/m156-realm-columns-guardrails.js';
 import { resolveTenantEffectiveGuardrails } from './guardrail-realm.js';
 import { resolveTenantEffectiveToolPolicies } from './tool-policy-realm.js';
+import { resolveTenantEffectivePromptStrategies, resolveTenantEffectivePromptContracts, resolveTenantEffectivePromptFrameworks } from './prompt-catalog-realm.js';
 import { applyM158RealmColumnsRoutingCost } from './migrations/m158-realm-columns-routing-cost.js';
+import { applyM159RealmColumnsPromptCatalog } from './migrations/m159-realm-columns-prompt-catalog.js';
 import { resolveTenantEffectiveRoutingPolicies } from './routing-policy-realm.js';
 import { resolveTenantEffectiveCostPolicies } from './cost-policy-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
@@ -1398,6 +1400,24 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return (this.d.prepare('SELECT * FROM prompt_frameworks WHERE key = ?').get(key) as PromptFrameworkRow) ?? null;
   }
 
+  async insertRealmPromptFrameworkRow(f: Omit<PromptFrameworkRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO prompt_frameworks (id, key, name, description, sections, section_separator, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      f.id, f.key, f.name, f.description ?? null, f.sections, f.section_separator, f.enabled,
+      f.realm ?? 'tenant', f.owner_tenant_id ?? null, f.logical_key ?? null, f.origin_id ?? null,
+      f.origin_hash ?? null, f.content_hash ?? '', f.track_mode ?? 'pin', f.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectivePromptFrameworks(tenantId: string | null): Promise<PromptFrameworkRow[]> {
+    const all = await this.listPromptFrameworks();
+    if (!tenantId) return all.filter((r) => (r.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectivePromptFrameworks(all, tenantId, ctx);
+  }
+
   async listPromptFrameworks(): Promise<PromptFrameworkRow[]> {
     return this.d.prepare('SELECT * FROM prompt_frameworks ORDER BY name ASC').all() as PromptFrameworkRow[];
   }
@@ -1472,6 +1492,24 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return (this.d.prepare('SELECT * FROM prompt_contracts WHERE key = ?').get(key) as PromptContractRow) ?? null;
   }
 
+  async insertRealmPromptContractRow(c: Omit<PromptContractRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO prompt_contracts (id, key, name, description, contract_type, schema, config, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      c.id, c.key, c.name, c.description ?? null, c.contract_type, c.schema ?? null, c.config, c.enabled,
+      c.realm ?? 'tenant', c.owner_tenant_id ?? null, c.logical_key ?? null, c.origin_id ?? null,
+      c.origin_hash ?? null, c.content_hash ?? '', c.track_mode ?? 'pin', c.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectivePromptContracts(tenantId: string | null): Promise<PromptContractRow[]> {
+    const all = await this.listPromptContracts();
+    if (!tenantId) return all.filter((r) => (r.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectivePromptContracts(all, tenantId, ctx);
+  }
+
   async listPromptContracts(): Promise<PromptContractRow[]> {
     return this.d.prepare('SELECT * FROM prompt_contracts ORDER BY name ASC').all() as PromptContractRow[];
   }
@@ -1507,6 +1545,24 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async getPromptStrategyByKey(key: string): Promise<PromptStrategyRow | null> {
     return (this.d.prepare('SELECT * FROM prompt_strategies WHERE key = ?').get(key) as PromptStrategyRow) ?? null;
+  }
+
+  async insertRealmPromptStrategyRow(s: Omit<PromptStrategyRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO prompt_strategies (id, key, name, description, instruction_prefix, instruction_suffix, config, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      s.id, s.key, s.name, s.description ?? null, s.instruction_prefix ?? null, s.instruction_suffix ?? null, s.config, s.enabled,
+      s.realm ?? 'tenant', s.owner_tenant_id ?? null, s.logical_key ?? null, s.origin_id ?? null,
+      s.origin_hash ?? null, s.content_hash ?? '', s.track_mode ?? 'pin', s.share_mode ?? 'private',
+    );
+  }
+
+  async resolveTenantEffectivePromptStrategies(tenantId: string | null): Promise<PromptStrategyRow[]> {
+    const all = await this.listPromptStrategies();
+    if (!tenantId) return all.filter((r) => (r.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectivePromptStrategies(all, tenantId, ctx);
   }
 
   async listPromptStrategies(): Promise<PromptStrategyRow[]> {
@@ -7474,6 +7530,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // Same for routing_policies + cost_policies (m158): both are seeded in seedDefaultData (above),
     // AFTER migrations, so re-run the idempotent backfill to classify them as global-realm originals.
     applyM158RealmColumnsRoutingCost(this.d);
+    // Same for the prompt catalog (m159): prompt_strategies + prompt_frameworks are seeded in
+    // seedDefaultData (above); re-run the idempotent backfill to classify them as global-realm originals.
+    applyM159RealmColumnsPromptCatalog(this.d);
   }
 
   /**

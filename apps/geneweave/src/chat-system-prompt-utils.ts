@@ -138,7 +138,9 @@ export async function resolveSystemPrompt(
       // Build strategy registry from built-in shared strategies plus enabled DB-defined overlays.
       const strategyRegistry = new InMemoryPromptStrategyRegistry(defaultPromptStrategyRegistry.list());
       try {
-        const strategyRows = await db.listPromptStrategies();
+        // Tenancy Realm (m159): resolve the tenant-EFFECTIVE strategies (a tenant's fork wins over the
+        // global built-in; no fork leaks across tenants). Null tenant → globals only (pre-realm behaviour).
+        const strategyRows = await db.resolveTenantEffectivePromptStrategies(tenantId ?? null);
         for (const row of strategyRows) {
           if (!row.enabled) continue;
           strategyRegistry.register(strategyFromRecord(row));

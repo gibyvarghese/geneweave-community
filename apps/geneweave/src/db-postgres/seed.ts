@@ -2512,6 +2512,19 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       await ctx.query(`UPDATE cost_policies SET logical_key = key WHERE logical_key IS NULL OR logical_key = ''`);
       await backfillRealmContentHash(ctx, 'cost_policies', ['tier', 'levers_json', 'description']);
       await ctx.query(`UPDATE cost_policies SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+
+      // ─── Tenancy Realm — realm columns on the prompt catalog (mirror of m159 + SQLite) ───
+      // prompt_strategies + prompt_frameworks are seeded above; prompt_contracts starts empty. All three
+      // key on UNIQUE(key) → logical_key = key. Classify each seeded row as a global-realm original.
+      for (const [table, cols] of [
+        ['prompt_strategies', ['name', 'description', 'instruction_prefix', 'instruction_suffix', 'config']],
+        ['prompt_contracts', ['name', 'description', 'contract_type', 'schema', 'config']],
+        ['prompt_frameworks', ['name', 'description', 'sections', 'section_separator']],
+      ] as const) {
+        await ctx.query(`UPDATE ${table} SET logical_key = key WHERE logical_key IS NULL OR logical_key = ''`);
+        await backfillRealmContentHash(ctx, table, [...cols]);
+        await ctx.query(`UPDATE ${table} SET origin_hash = content_hash WHERE realm = 'global' AND (origin_hash IS NULL OR origin_hash = '') AND content_hash IS NOT NULL AND content_hash <> ''`);
+      }
     },
   };
 }

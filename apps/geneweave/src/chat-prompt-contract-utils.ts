@@ -39,10 +39,13 @@ export interface PromptContractValidationReport {
 export async function validatePromptContractsAgainstDb(
   output: string,
   db: DatabaseAdapter,
+  tenantId?: string | null,
 ): Promise<PromptContractValidationReport | undefined> {
   if (!output.trim()) return undefined;
   try {
-    const rows = await db.listPromptContracts();
+    // Tenancy Realm (m159): resolve the tenant-EFFECTIVE contracts (a tenant's forked contract applies
+    // only to that tenant; no fork leaks). Null tenant → globals only (the pre-realm behaviour).
+    const rows = await db.resolveTenantEffectivePromptContracts(tenantId ?? null);
     const enabledRows = rows.filter((row) => row.enabled);
     if (enabledRows.length === 0) return undefined;
 
