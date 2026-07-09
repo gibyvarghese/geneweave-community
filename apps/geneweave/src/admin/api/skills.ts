@@ -8,6 +8,7 @@ import { newUUIDv7 } from '@weaveintel/core';
 import type { DatabaseAdapter } from '../../db.js';
 import type { SkillRow } from '../../db-types.js';
 import { scanSkillForThreats } from '../../skill-capabilities.js';
+import { buildTenantSkillFork, resolveTenantEffectiveSkills } from '../../skill-realm.js';
 import type { RouterLike, AdminHelpers } from './types.js';
 
 // Phase-1 composition edges (m148 columns). The skills table stores these as JSON arrays / ints; the
@@ -41,6 +42,69 @@ export function registerSkillRoutes(
     if (!skill) { json(res, 404, { error: 'Skill not found' }); return; }
     json(res, 200, { skill });
   }, { auth: true });
+
+  // ── Admin: Tenancy Realm — per-tenant skill customization (content fork) ─────────────────
+  // A built-in skill is shared by everyone; a tenant can fork its OWN copy (edit the instructions)
+  // without touching anyone else's. Resolution later prefers that copy for the tenant.
+  const SKILL_OVERRIDE_KEYS = ['name', 'description', 'category', 'trigger_patterns', 'instructions', 'tool_names', 'examples', 'tags', 'domain_sections', 'execution_contract', 'share_mode'] as const;
+
+  // Who-gets-what for a tenant: the effective skill + where it came from.
+  router.get('/api/admin/skills/:id/realm', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const base = await db.getSkill(params['id']!);
+    if (!base) { json(res, 404, { error: 'Skill not found' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const tenantId = url.searchParams.get('tenantId');
+    const logicalKey = base.logical_key ?? base.id;
+    const all = await db.listSkills();
+    const ctx = tenantId ? await db.realmContext(tenantId) : undefined;
+    const effective = resolveTenantEffectiveSkills(all, tenantId, ctx).find((s) => (s.logical_key ?? s.id) === logicalKey) ?? base;
+    const kind = effective.realm === 'tenant' ? (effective.owner_tenant_id === tenantId ? 'own_override' : 'inherited') : 'global';
+    json(res, 200, { effective, provenance: { kind }, tenantId });
+  }, { auth: true });
+
+  // Create/replace a tenant's fork of this global skill.
+  router.post('/api/admin/skills/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getSkill(params['id']!);
+    if (!global) { json(res, 404, { error: 'Skill not found' }); return; }
+    if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global skill, not an existing tenant copy' }); return; }
+    const raw = await readBody(req);
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const tenantId = body['tenantId'];
+    if (typeof tenantId !== 'string' || !tenantId.trim()) { json(res, 400, { error: 'tenantId required' }); return; }
+    const overrides: Record<string, unknown> = {};
+    for (const k of SKILL_OVERRIDE_KEYS) {
+      if (body[k] === undefined) continue;
+      // JSON columns (trigger_patterns/tool_names/examples/tags/domain_sections/execution_contract) → stringify.
+      overrides[k] = (k === 'name' || k === 'description' || k === 'category' || k === 'instructions' || k === 'share_mode')
+        ? body[k] : JSON.stringify(body[k]);
+    }
+    const logicalKey = global.logical_key ?? global.id;
+    const rows = await db.listSkills();
+    const existing = rows.find((r) => r.realm === 'tenant' && r.owner_tenant_id === tenantId && (r.logical_key ?? r.id) === logicalKey);
+    if (existing) await db.deleteSkill(existing.id);
+    const fork = buildTenantSkillFork(global, tenantId, overrides as Parameters<typeof buildTenantSkillFork>[2]);
+    await db.insertRealmSkillRow(fork);
+    const saved = await db.getSkill(fork.id);
+    json(res, 201, { fork: saved, replacedExisting: Boolean(existing) });
+  }, { auth: true, csrf: true });
+
+  // Revert: drop a tenant's skill fork so it falls back to the global built-in.
+  router.del('/api/admin/skills/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getSkill(params['id']!);
+    if (!global) { json(res, 404, { error: 'Skill not found' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const tenantId = url.searchParams.get('tenantId');
+    if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    const logicalKey = global.logical_key ?? global.id;
+    const fork = (await db.listSkills()).find((r) => r.realm === 'tenant' && r.owner_tenant_id === tenantId && (r.logical_key ?? r.id) === logicalKey);
+    if (!fork) { json(res, 404, { error: 'No customization for this tenant' }); return; }
+    await db.deleteSkill(fork.id);
+    json(res, 200, { ok: true, reverted: fork.id });
+  }, { auth: true, csrf: true });
 
   router.post('/api/admin/skills', async (req, res, _params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }

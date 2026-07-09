@@ -613,6 +613,20 @@ export function pgToolStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       );
     },
 
+    async insertRealmSkillRow(s: Omit<SkillRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO skills (id, name, description, category, trigger_patterns, instructions, tool_names, examples, tags, priority, version, tool_policy_key, enabled, supervisor_agent_id, domain_sections, execution_contract, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+        [
+          s.id, s.name, s.description, s.category, s.trigger_patterns, s.instructions, s.tool_names ?? null,
+          s.examples ?? null, s.tags ?? null, s.priority, s.version, s.tool_policy_key ?? null, s.enabled,
+          s.supervisor_agent_id ?? null, s.domain_sections ?? null, s.execution_contract ?? null,
+          s.realm ?? 'tenant', s.owner_tenant_id ?? null, s.logical_key ?? null, s.origin_id ?? null,
+          s.origin_hash ?? null, s.content_hash ?? '', s.track_mode ?? 'pin', s.share_mode ?? 'private',
+        ],
+      );
+    },
+
     async getSkill(id: string): Promise<SkillRow | null> {
       const { rows } = await ctx.query('SELECT * FROM skills WHERE id = $1', [id]);
       return (rows[0] as SkillRow | undefined) ?? null;
