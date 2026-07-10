@@ -24,8 +24,10 @@ export function guardrailContentHash(row: Partial<GuardrailRow>): string {
 /** Fields an operator may override when a tenant customizes a guardrail (copy-on-write). */
 export type GuardrailOverrides = Partial<Pick<GuardrailRow, (typeof GUARDRAIL_SEMANTIC_COLS)[number] | 'share_mode'>>;
 
-const logicalKeyOf = (r: { logical_key?: string | null; name?: string; id?: string }): string =>
+/** A guardrail's shared identity: the stored logical_key, else its name (guardrails have no UNIQUE(name)). */
+export const guardrailLogicalKey = (r: { logical_key?: string | null; name?: string; id?: string }): string =>
   (r.logical_key ?? undefined) || (r.name ?? undefined) || String(r.id ?? '');
+const logicalKeyOf = guardrailLogicalKey;
 
 function toGuardrailRealmRecord(row: GuardrailRow): RealmRecord<Record<string, unknown>> {
   return {

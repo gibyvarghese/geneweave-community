@@ -17,6 +17,26 @@ import { safeExec } from './helpers.js';
  *
  * Zero data movement — a relabel + a new empty log. Idempotent (guarded). Postgres gets the table via
  * the regenerated schema + the same backfill in db-postgres/seed.ts.
+ *
+ * ── Why `realm_versions` is SEPARATE from `prompt_versions` (a settled decision, not an oversight) ──
+ *
+ * The two tables sound alike and answer completely different questions, so they stay apart:
+ *
+ *   `prompt_versions`  — the *authoring* axis. Draft/published/retired revisions of ONE prompt row,
+ *                        keyed `(prompt_id, version)` where `version` is a human-authored string. It
+ *                        pairs with `prompt_experiments` and is consumed at runtime by
+ *                        `resolvePromptRecordForExecution` to pick an active variant for an A/B test.
+ *                        It has no `content_hash`, no realm, and no notion of a logical key.
+ *
+ *   `realm_versions`   — the *distribution* axis. An append-only, content-addressed log of the defaults
+ *                        the PRODUCT has published, keyed `(family, logical_key, version)` across all
+ *                        eleven realm families. Its `content_hash` is what drift compares against.
+ *
+ * Drift is `driftState(origin_hash, content_hash, latest published hash)` — every input lives on the
+ * live row or in this log. `prompt_versions` is never consulted and giving it a `content_hash` would
+ * buy drift nothing: it cannot represent a published default for a `(family, logical_key)` at all.
+ * Merging them would force per-prompt authoring revisions and cross-family published baselines into one
+ * table with two incompatible keys. Keep them separate.
  */
 export function applyM152RealmVersions(db: BetterSqlite3.Database): void {
   safeExec(db, `CREATE TABLE IF NOT EXISTS realm_versions (

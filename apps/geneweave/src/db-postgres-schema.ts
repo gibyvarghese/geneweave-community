@@ -4569,6 +4569,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_realm_proposals_pending_fork ON realm_propo
 CREATE INDEX IF NOT EXISTS idx_realm_proposals_status ON realm_proposals(status, created_at);
 CREATE INDEX IF NOT EXISTS ix_realm_tenant_state_family_key ON realm_tenant_state(family, logical_key);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_realm_tenant_state_tenant_key ON realm_tenant_state(tenant_id, family, logical_key);
+CREATE INDEX IF NOT EXISTS ix_realm_versions_key_hash ON realm_versions(family, logical_key, content_hash);
 CREATE INDEX IF NOT EXISTS ix_realm_versions_family_key ON realm_versions(family, logical_key);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_realm_versions_key_version ON realm_versions(family, logical_key, version);
 CREATE INDEX IF NOT EXISTS idx_signals_tenant ON routing_capability_signals(tenant_id, created_at);

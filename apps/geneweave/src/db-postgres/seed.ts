@@ -415,7 +415,11 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       }
   
       // Guardrails
-      if ((await cnt('guardrails')) === 0) {
+      // Base guardrails — upserted PER ID on every boot (Tenancy Realm Section E). The old
+      // `cnt('guardrails') === 0` fresh-database gate was brittle: migrations m30/m31/m71 seed guardrails
+      // BEFORE this runs, so on any such database the table was non-empty and the base set was never
+      // installed at all. Idempotent per id, matching the injection/extended sets below. A tenant that
+      // wants a leaner posture disables rows via the realm state overlay, not by them being absent.
       const guardrails: Omit<GuardrailRow, 'created_at' | 'updated_at'>[] = [
         {
           id: '0370fa22-5fc8-49a4-bd4c-3e39863da61d', name: 'PII Redaction', description: 'Redact personal identifiable information before sending to LLM',
@@ -482,8 +486,7 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
           }), priority: 94, enabled: 1,
         },
       ];
-      for (const g of guardrails) await this.createGuardrail(g);
-      }
+      for (const g of guardrails) { if (!(await this.getGuardrail!(g.id))) await this.createGuardrail!(g); }
   
       // Ensure prompt-injection guardrails exist for existing databases
       const injectionGuardrails: Omit<GuardrailRow, 'created_at' | 'updated_at'>[] = [

@@ -80,6 +80,8 @@ import {
 } from '@weaveintel/guardrails';
 import { PolicyEvaluator, createPolicy } from '@weaveintel/human-tasks';
 import { normalizeGuardrail, stageMatches } from './chat-guardrail-utils.js';
+import { guardrailLogicalKey } from './guardrail-realm.js';
+import type { GuardrailRow } from './db-types/routing.js';
 import type { DatabaseAdapter } from './db.js';
 import { resolveLimits } from './platform-limits.js';
 
@@ -159,8 +161,21 @@ export async function evaluateGuardrails(
     // ancestors + globals, nearest-owner-wins) so a tenant's customized guardrail applies only to
     // that tenant and other tenants' forks never leak in. Null tenant → globals only.
     const rows = await db.resolveTenantEffectiveGuardrails(opts?.tenantId ?? null);
-    const guardrailRows = rows.filter(r => r.enabled && r.type !== 'escalation_policy' && stageMatches(r.stage, stage));
-    const escalationRows = rows.filter(r => r.enabled && r.type === 'escalation_policy');
+
+    // Disposition (state overlay, Section E): a tenant may turn a shared guardrail OFF for itself — a
+    // "lean" posture — without forking it. Keyed by logical key, so a disable also covers that tenant's
+    // fork of the same guardrail. The overlay can only ever SUBTRACT: `r.enabled` (the row's own switch)
+    // still gates everything, so an overlay can never switch ON a guardrail the platform disabled
+    // globally. An empty overlay — the default — leaves behaviour exactly as before.
+    const tenantId = opts?.tenantId ?? null;
+    let isActive: (r: GuardrailRow) => boolean = () => true;
+    if (tenantId) {
+      const states = await db.resolveRealmStates('guardrails', tenantId, rows.map(guardrailLogicalKey));
+      isActive = (r) => states.get(guardrailLogicalKey(r))?.active !== false;
+    }
+
+    const guardrailRows = rows.filter(r => r.enabled && isActive(r) && r.type !== 'escalation_policy' && stageMatches(r.stage, stage));
+    const escalationRows = rows.filter(r => r.enabled && isActive(r) && r.type === 'escalation_policy');
 
     const guardrails: Guardrail[] = guardrailRows.map(r => normalizeGuardrail(r, stage));
     const escalationPolicies: EscalationPolicy[] = escalationRows

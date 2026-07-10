@@ -15,6 +15,7 @@ import { promptDriftReport, resyncPromptToPackage } from '../realm-prompt-drift.
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from '../realm-tenant-state.js';
 import { resolvePinnedVersions } from '../realm-pinned-version.js';
 import { resolveTenantEffectivePromptFragments as resolveEffectiveFragments } from '../prompt-fragment-realm.js';
+import { loadThreeWayDiff, applyRealmMerge, realmDriftReport } from '../realm-diff.js';
 import {
   promoteRealmForkToGlobal, proposeRealmFork, listRealmProposals, approveRealmProposal,
   rejectRealmProposal, deprecateRealmRecord, undeprecateRealmRecord, checkVisibleKeyCollision,
@@ -205,6 +206,18 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     async reparentTenant(tenantId: string, newParentTenantId: string | null) {
       return reparentTenant(ctx as unknown as SqlClient, 'postgres', tenantId, newParentTenantId);
     },
+
+    // ── Tenancy Realm Section E: drift diff / merge workbench ──
+    async realmDiff(family: string, recordId: string) {
+      return loadThreeWayDiff(ctx as unknown as SqlClient, 'postgres', family, recordId);
+    },
+    async realmMerge(family: string, recordId: string, resolved: Record<string, unknown>) {
+      return applyRealmMerge(ctx as unknown as SqlClient, 'postgres', family, recordId, resolved);
+    },
+    async realmDriftReport(family: string, opts?: { tenantId?: string | null }) {
+      return realmDriftReport(ctx as unknown as SqlClient, 'postgres', family, opts ?? {});
+    },
+
 
     async realmContext(tenantId: string | null) {
       return buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
