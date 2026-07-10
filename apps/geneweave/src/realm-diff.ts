@@ -48,6 +48,10 @@ export interface ThreeWayDiff {
   readonly family: string;
   readonly recordId: string;
   readonly logicalKey: string;
+  /** `global` | `tenant` — so a caller can authorize without a second query. */
+  readonly realm: string;
+  /** The owning tenant of a fork; null for a global default. */
+  readonly ownerTenantId: string | null;
   readonly drift: DriftState | 'not_a_fork';
   /** False when the forked-from version was never published — then every difference reads as a conflict. */
   readonly baseAvailable: boolean;
@@ -178,6 +182,8 @@ export async function loadThreeWayDiff(
 
   return {
     family: spec.family, recordId, logicalKey,
+    realm: String(row['realm'] ?? 'global'),
+    ownerTenantId: (row['owner_tenant_id'] as string | null) ?? null,
     drift: driftState(baseHash, localHash, remoteHash),
     baseAvailable: base !== null,
     fields, conflicts,

@@ -196,8 +196,7 @@ export function registerRealmGovernanceRoutes(
     const family = params['family']!;
     if (!isRealmFamily(family)) { json(res, 400, { error: `unknown realm family '${family}'` }); return; }
     const diff = await db.realmDiff(family, params['id']!);
-    if ('error' in diff) { json(res, diff.error === 'not found' ? 404 : 400, { error: diff.error }); return; }
-    if (!(await mayEditRecord(family, params['id']!, auth))) { json(res, 403, { error: 'Not your record' }); return; }
+    if (!authorizeRecord(res, diff, auth)) return;
     json(res, 200, diff);
   }, { auth: true });
 
@@ -208,7 +207,9 @@ export function registerRealmGovernanceRoutes(
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
     const family = params['family']!;
     if (!isRealmFamily(family)) { json(res, 400, { error: `unknown realm family '${family}'` }); return; }
-    if (!(await mayEditRecord(family, params['id']!, auth))) { json(res, 403, { error: 'Not your record' }); return; }
+    // Authorize against the same load the merge will redo — O(1), and it settles 403-vs-404 first.
+    if (!authorizeRecord(res, await db.realmDiff(family, params['id']!), auth)) return;
+
     const body = await optionalBody(req);
     const resolved = (body['resolved'] && typeof body['resolved'] === 'object') ? body['resolved'] as Record<string, unknown> : {};
 
@@ -222,13 +223,25 @@ export function registerRealmGovernanceRoutes(
   }, { auth: true, csrf: true });
 
   /**
-   * A platform admin may touch any record. Anyone else may only touch their own tenant's fork — never a
-   * global default (that would change what every tenant resolves).
+   * A platform admin may touch any record. Anyone else may only touch their OWN tenant's fork — never a
+   * global default, since merging one changes what every tenant resolves.
+   *
+   * The 403 is decided BEFORE the 404 for non-platform admins, deliberately: otherwise "exists but isn't
+   * yours" (403) and "doesn't exist" (404) would differ, letting a tenant admin enumerate global record
+   * ids. Ownership comes off the diff we already loaded, so this costs no extra query.
+   *
+   * Returns true when the caller may proceed; otherwise it has already written the response.
    */
-  async function mayEditRecord(family: string, recordId: string, auth: AuthContext): Promise<boolean> {
-    if (isPlatformAdmin(auth)) return true;
-    const report = await db.realmDriftReport(family, { tenantId: auth.tenantId ?? null });
-    return report.entries.some((e) => e.id === recordId);
+  function authorizeRecord(
+    res: Parameters<typeof json>[0],
+    diff: Awaited<ReturnType<typeof db.realmDiff>>,
+    auth: AuthContext,
+  ): boolean {
+    const missing = 'error' in diff;
+    const ownsIt = !missing && diff.realm === 'tenant' && diff.ownerTenantId === auth.tenantId;
+    if (!isPlatformAdmin(auth) && !ownsIt) { json(res, 403, { error: 'Not your record' }); return false; }
+    if (missing) { json(res, diff.error === 'not found' ? 404 : 400, { error: diff.error }); return false; }
+    return true;
   }
 
   // ── D16: reparent a tenant in the org tree ──────────────────────────────────

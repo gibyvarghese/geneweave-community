@@ -217,6 +217,39 @@ describe('Tenancy Realm — Section E (drift extras)', () => {
       expect(diff.drift).toBe('diverged');
     });
 
+    it('FORK MERGE: merging a fork writes only semantic columns and keeps realm / owner / origin', async () => {
+      const base = (await db.listPrompts()).find((p) => p.id === g.id)!;
+      await db.insertRealmPromptRow(buildTenantPromptFork(base as PromptRow, 'acme', { template: 'FORK EDIT', description: 'fork-desc' }));
+      const fork = (await db.listPrompts()).find((p) => p.realm === 'tenant' && p.owner_tenant_id === 'acme' && (p.logical_key ?? p.key) === g.key)!;
+
+      // the global moves on → the fork diverges from its origin
+      editLocal(g.id, g.base, { template: 'GLOBAL MOVED', category: 'gcat' });
+      const d = await db.realmDiff('prompts', fork.id) as ThreeWayDiff;
+      expect(d.drift).toBe('diverged');
+      expect(d.conflicts).toEqual(['template']);      // both moved template, differently
+      expect(d.realm).toBe('tenant');
+      expect(d.ownerTenantId).toBe('acme');
+
+      const m = await db.realmMerge('prompts', fork.id, { template: 'RESOLVED' });
+      expect(m.ok).toBe(true);
+      expect(m.drift).toBe('customized');
+
+      const after = (await db.listPrompts()).find((p) => p.id === fork.id)! as unknown as Record<string, unknown>;
+      expect(after['template']).toBe('RESOLVED');
+      expect(after['description']).toBe('fork-desc');  // local_only, kept
+      expect(after['category']).toBe('gcat');          // remote_only, adopted
+      expect(after['realm']).toBe('tenant');           // identity untouched
+      expect(after['owner_tenant_id']).toBe('acme');
+      expect(after['origin_id']).toBe(g.id);
+      expect(((await db.realmDiff('prompts', fork.id)) as ThreeWayDiff).drift).not.toBe('diverged');
+    });
+
+    it('AUTHZ SHAPE: the diff carries realm + ownerTenantId so callers authorize without a table scan', async () => {
+      const globalDiff = await db.realmDiff('prompts', g.id) as ThreeWayDiff;
+      expect(globalDiff.realm).toBe('global');
+      expect(globalDiff.ownerTenantId).toBeNull(); // a global default belongs to nobody → platform-admin only
+    });
+
     it('SECURITY: a hostile family throws; a hostile id/hash is bound, not interpolated', async () => {
       await expect(db.realmDiff(HOSTILE, g.id)).rejects.toThrow(/unknown realm family/);
       await expect(db.realmMerge('prompts; DROP TABLE prompts', g.id, {})).rejects.toThrow(/unknown realm family/);
