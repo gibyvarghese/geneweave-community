@@ -4472,6 +4472,20 @@ ${code('bash', `curl -X POST /api/admin/tenants/emea/reparent \\
 
 <p>All of this is uniform across the config surface: prompts, prompt fragments, skills, worker agents, guardrails, tool policies, model-routing and cost policies, and the prompt catalog each expose the same <code>customize</code> / <code>revert</code> / <code>propose</code> / <code>deprecate</code> shape.</p>
 `)}
+
+${section('ten-ui', 'The Tenancy Realm workbench — a screen for all of it', `
+<p>Everything above is an admin screen, not just an API. In the console, <strong>Admin → Governance → Tenancy Realm</strong> opens a workbench with three sections, so an operator never has to hand-write a curl to see what drifted or to reconcile it.</p>
+
+<ul>
+<li><strong>Drift &amp; merge.</strong> Pick a config family (and, optionally, a tenant) and load its drift. Every customized record shows its state as a colour-coded badge — <em>in-sync</em>, <em>customized</em>, <em>stale</em>, or the one that needs you, <em>diverged</em>. Click a diverged row and the three-way merge opens inline: <strong>Base</strong>, <strong>Yours</strong> and <strong>Upstream</strong> side by side, each field labelled with who moved it. Fields only one side changed resolve themselves; a field you both changed shows a box to type the value to keep. The <strong>Apply merge</strong> button stays disabled until every conflict has a value — the screen will not let you merge by guessing.</li>
+<li><strong>State overlay.</strong> Pick a family and a tenant to see its effective records, then turn one off for that tenant, bump its priority, or pin it to a version — each control writes the per-tenant overlay directly. For guardrails there is a one-click <strong>lean posture</strong> that drops the model-graded checks while leaving every safety control on.</li>
+<li><strong>Share &amp; reach.</strong> Paste a tenant's fork id, choose a share mode, and <strong>Preview reach</strong> shows the blast radius before you commit: who would start inheriting it, who keeps their own copy, and how many are out of scope.</li>
+</ul>
+
+${callout('tip', '🟠', 'The amber “shared” badge.', 'Provenance is visible in place, not just in the workbench. In any admin list that shows a <strong>realm</strong> column, a global default reads with a quiet grey badge, a tenant’s own copy blue, and a copy that a parent org has shared down the tree an <strong>amber “shared”</strong> — so at a glance you can tell which rows are inherited versus owned versus global. A deprecated default is flagged red.')}
+
+<p>The workbench only calls the same admin endpoints documented above, and they enforce their own access rules, so the screen adds no privilege of its own — it is a faster way to drive what the API already allowed.</p>
+`)}
 `;
 }
 
@@ -6201,7 +6215,7 @@ export function getDocsHTML(): string {
     { id: 'replay',       label: 'Replay',           icon: '⏮️', group: 'Operations',
       subs: ['replay-record','replay-replay'] },
     { id: 'tenancy',      label: 'Tenancy',          icon: '🏢', group: 'Operations',
-      subs: ['ten-context','ten-budget','ten-caps','ten-realm','ten-drift','ten-merge','ten-posture','ten-share','ten-govern'] },
+      subs: ['ten-context','ten-budget','ten-caps','ten-realm','ten-drift','ten-merge','ten-posture','ten-share','ten-govern','ten-ui'] },
     { id: 'compliance',   label: 'Compliance',       icon: '📋', group: 'Operations',
       subs: ['comp-setup','comp-consent','comp-gdpr'] },
     { id: 'durability',   label: 'Durability',       icon: '💾', group: 'Operations',
@@ -6913,6 +6927,7 @@ var SEARCH_IDX = [
   {s:'tenancy',     t:'Safe updates & drift',         k:'drift reconcile version log in_sync customized stale diverged state overlay disable pin per tenant update defaults', sub:'ten-drift'},
   {s:'tenancy',     t:'Diff / merge workbench',       k:'diverged three-way merge conflict base local remote resolve reconcile drift workbench diff', sub:'ten-merge'},
   {s:'tenancy',     t:'Guardrail posture (lean)',    k:'lean guardrail profile posture model-graded disable overlay safety protected pii redaction injection cost latency', sub:'ten-posture'},
+  {s:'tenancy',     t:'Realm workbench (admin UI)',   k:'workbench screen admin ui drift merge overlay share blast radius badge amber shared provenance diverged conflict resolve lean posture governance console', sub:'ten-ui'},
   {s:'tenancy',     t:'Share down & promote up',      k:'share subtree blast radius promote fork hierarchy tenant tree inherit shadowed', sub:'ten-share'},
   {s:'tenancy',     t:'Governing shared defaults',    k:'propose review queue approve reject promote platform admin pin pinned version deprecate supersede reparent move tenant org tree key collision customize not create governance', sub:'ten-govern'},
   // Compliance

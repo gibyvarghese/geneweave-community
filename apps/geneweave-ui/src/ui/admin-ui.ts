@@ -8,6 +8,7 @@ import { renderToolSimulationView } from './tool-simulation-ui.js';
 import { renderKglCompetitionRunDetail, renderKglRunRowActions } from './kaggle-competition-runs-ui.js';
 import { renderCapabilityMatrixView } from './capability-matrix-ui.js';
 import { renderRoutingSimulatorView } from './routing-simulator-ui.js';
+import { renderRealmView, realmCellBadge } from './realm-ui.js';
 import { renderToolApprovalView } from './tool-approval-ui.js';
 import { renderMCPGatewayClientsView } from './mcp-gateway-clients-ui.js';
 import { renderMCPGatewayActivityView } from './mcp-gateway-activity-ui.js';
@@ -966,6 +967,12 @@ export function renderAdminView(options: {
     return page;
   }
 
+  if (schema?.customView === 'realm-workbench') {
+    right.appendChild(renderRealmView({ render: options.render }));
+    page.appendChild(right);
+    return page;
+  }
+
   const searchCols = getListableCols(schema);
   const cols = getVisibleCols(currentTab, searchCols);
   const PAGE_SIZE = 25;
@@ -1860,6 +1867,11 @@ function buildAdminRow(
       renderKglRunRowActions(row, options.render),
     ] : []),
     ...cols.map((col: string) => {
+      // Tenancy Realm: render the `realm` column as a provenance badge (amber = shared down the tree)
+      // instead of raw text, so operators see at a glance which rows are tenant copies / shared / global.
+      if (col === 'realm' && row && Object.prototype.hasOwnProperty.call(row, 'realm')) {
+        return h('td', { 'data-realm-cell': '' }, realmCellBadge(row as Record<string, unknown>));
+      }
       const raw = row?.[col];
       const str = raw == null ? '—' : String(raw);
       const display = str.length > 60 ? str.slice(0, 57) + '…' : str;

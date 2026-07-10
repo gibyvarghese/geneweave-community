@@ -7,7 +7,7 @@ import type { AdminTabDef } from '@weaveintel/core';
 export const PROMPT_CAPABILITY_ADMIN_TABS: Record<string, AdminTabDef> = {
   'prompts': {
     singular: 'Prompt', apiPath: 'admin/prompts', listKey: 'prompts',
-    cols: ['name', 'prompt_type', 'status', 'version', 'enabled'],
+    cols: ['name', 'prompt_type', 'status', 'version', 'realm', 'enabled'],
     fields: [
       { key: 'key', label: 'Key' },
       { key: 'name', label: 'Name' },

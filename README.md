@@ -255,6 +255,23 @@ curl -X DELETE '/api/admin/realm/guardrails/profile/lean?tenantId=acme'   # back
 Underneath it's the state overlay, which can only ever **subtract**: a tenant can never turn *on* a
 guardrail the platform has disabled globally.
 
+#### The workbench (admin UI)
+
+All of the above is a screen, not just an API. **Admin → Governance → Tenancy Realm** opens a workbench:
+
+- **Drift & merge** — load a family's drift; every record shows a colour-coded state badge; click a
+  `diverged` row and the three-way merge (Base / Yours / Upstream) opens inline, field by field. The
+  **Apply merge** button stays disabled until every conflict has a resolved value — it won't merge by
+  guessing.
+- **State overlay** — turn a shared record off for a tenant, set priority, or pin a version; guardrails
+  get a one-click **lean posture**.
+- **Share & reach** — preview a fork's blast radius (who inherits, who's shadowed, who's out of scope)
+  before you apply a share mode.
+
+Provenance is visible in place too: any admin list with a **realm** column badges each row — grey for a
+global default, blue for a tenant's own copy, **amber for a copy shared down the org tree**, red for a
+deprecated one.
+
 ---
 
 ## Configuration reference
