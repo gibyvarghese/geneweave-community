@@ -103,8 +103,21 @@ export class CapabilityMatrixCache {
     this.invalidations++;
   }
 
-  invalidateCapabilityScores(): void {
-    this.capabilityScores.clear();
+  /**
+   * Tenancy Realm (B7): invalidate the capability-score cache with the right tenant fan-out.
+   * capability_scores are flat (a row is either GLOBAL, tenant_id=NULL, or specific to one tenant — a
+   * child tenant inherits only globals, not a parent tenant's scores), so:
+   *   • a SPECIFIC tenant's row changed  → drop only that tenant's cache key.
+   *   • a GLOBAL row changed (tenantId null) or a bulk/unknown change (omitted) → clear ALL keys,
+   *     because every tenant's effective set = its own rows + the globals that just changed.
+   * Passing nothing preserves the old "flush everything" behaviour for existing callers.
+   */
+  invalidateCapabilityScores(tenantId?: string | null): void {
+    if (typeof tenantId === 'string') {
+      this.capabilityScores.delete(tenantId);
+    } else {
+      this.capabilityScores.clear(); // global write or unspecified → every tenant inherits globals
+    }
     this.invalidations++;
   }
 

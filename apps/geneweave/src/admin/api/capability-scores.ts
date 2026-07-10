@@ -108,7 +108,9 @@ export function registerCapabilityScoreRoutes(
       modelId: String(body['model_id']),
       provider: String(body['provider']),
     });
-    getCapabilityMatrixCache().invalidateCapabilityScores();
+    // Tenancy Realm (B7): fan out to the affected tenant — a specific tenant's row clears only that
+    // tenant's cache; a global row (tenant_id null) clears all tenants (they all inherit globals).
+    getCapabilityMatrixCache().invalidateCapabilityScores((body['tenant_id'] as string | null) ?? null);
     json(res, 201, { capabilityScore: matches[0] ?? null });
   }, { auth: true, csrf: true });
 
@@ -131,14 +133,20 @@ export function registerCapabilityScoreRoutes(
     }
     await db.updateCapabilityScore(params['id']!, fields as never);
     const capabilityScore = await db.getCapabilityScore(params['id']!);
-    getCapabilityMatrixCache().invalidateCapabilityScores();
+    // Tenancy Realm (B7): invalidate the affected tenant. If the update MOVED the row between tenants
+    // (tenant_id changed), both the old and new tenant are affected → clear all; otherwise just the row's.
+    const newTenant = (fields['tenant_id'] as string | null | undefined);
+    const tenantChanged = newTenant !== undefined && (newTenant ?? null) !== (existing.tenant_id ?? null);
+    getCapabilityMatrixCache().invalidateCapabilityScores(tenantChanged ? null : (existing.tenant_id ?? null));
     json(res, 200, { capabilityScore });
   }, { auth: true, csrf: true });
 
   router.del('/api/admin/capability-scores/:id', async (_req, res, params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    // Tenancy Realm (B7): read the row first so we invalidate only the affected tenant (a global row → all).
+    const existing = await db.getCapabilityScore(params['id']!);
     await db.deleteCapabilityScore(params['id']!);
-    getCapabilityMatrixCache().invalidateCapabilityScores();
+    getCapabilityMatrixCache().invalidateCapabilityScores(existing?.tenant_id ?? null);
     json(res, 200, { ok: true });
   }, { auth: true, csrf: true });
 }

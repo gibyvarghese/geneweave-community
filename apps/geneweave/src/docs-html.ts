@@ -4314,7 +4314,65 @@ if (toolBinding) {
 // Check the tenant-level cost policy binding
 const costBinding = resolveCapabilityBinding(bindings, 'tenant', 'acme', 'cost_policy');
 const costPolicyRef = costBinding?.policyRef;`, ['@weaveintel/core'])}
-`)}`;
+`)}
+
+${section('ten-realm', 'Per-tenant config (the Tenancy Realm)', `
+<p>Every built-in piece of configuration in geneWeave — a system prompt, a skill, a guardrail, a model-routing rule, a cost budget, an output contract, a prompt strategy — ships as one shared <strong>global default</strong> that all workspaces use. The <strong>Tenancy Realm</strong> lets a single tenant (a customer / workspace / org) keep its <em>own copy</em> of any of these and tweak it, <strong>without touching anyone else's</strong> and without you having to maintain a separate config file per customer.</p>
+
+<p>In plain terms: think of it like a shared Google Doc template that each team can "make a copy of" and edit for themselves. Everyone starts from the same template; a team that never copies it keeps getting the latest template automatically; a team that copies it keeps <em>their</em> version. That "make a copy and customise" is called a <strong>fork</strong>, and the rule for deciding whose copy you get is <strong>nearest-owner-wins</strong>.</p>
+
+${callout('tip', '🎯', 'Nearest owner wins.', 'When the app needs (say) the "support agent" prompt for a request, it looks for the closest owner: <strong>your own tenant\'s copy</strong> beats <strong>a parent org\'s shared copy</strong>, which beats the <strong>global default</strong>. A tenant that never customised anything is 100% unaffected — it always gets the global. No copy is ever visible to another tenant.')}
+
+<p><strong>What can be forked per tenant today</strong> — the whole config surface: prompts &amp; prompt fragments, skills, worker agents (supervisor roster), guardrails, tool policies, model-routing policies, cost policies, and the prompt catalog (strategies, output contracts, section frameworks). Each is a plain table with eight extra "realm" columns; a global row is <code>realm='global'</code>, a tenant's copy is <code>realm='tenant'</code> with an <code>owner_tenant_id</code>.</p>
+
+<p><strong>Customise one for a tenant</strong> — every family exposes the same admin endpoints. Fork a global for a tenant, see who-gets-what, and revert:</p>
+
+${code('bash', `# Give tenant "acme" its own stricter copy of the built-in "PII Redaction" guardrail.
+# (Same shape for /prompt-strategies, /tool-policies, /routing, /cost-policies, /skills, ...)
+curl -X POST /api/admin/guardrails/GLOBAL_ID/customize \\
+  -H 'content-type: application/json' -H 'x-csrf-token: ...' \\
+  -d '{ "tenantId": "acme", "config": { "threshold": 0.95 } }'
+# → 201 { fork: { realm: "tenant", owner_tenant_id: "acme", origin_id: "GLOBAL_ID", ... } }
+
+# Who does tenant "acme" actually get, and where did it come from?
+curl '/api/admin/guardrails/GLOBAL_ID/realm?tenantId=acme'
+# → { effective: {...}, provenance: { kind: "own_override" } }
+
+# The effective set a tenant resolves (its forks + inherited + globals, one per key):
+curl '/api/admin/guardrails?tenantId=acme'
+
+# Revert — drop the fork so the tenant falls back to the global default:
+curl -X DELETE '/api/admin/guardrails/GLOBAL_ID/customize?tenantId=acme'`)}
+
+<p>Under the hood every family is a thin bridge over the framework resolver <code>@weaveintel/realm</code> (<code>resolveEffective</code>), so the resolution logic is written once and reused. At request time the chat path resolves the tenant-effective prompt / strategy / guardrails / routing / cost / tool policies automatically — a tenant's fork applies only to that tenant, and a fork never leaks to anyone else.</p>
+
+${callout('info', '🧾', 'Every run records which copy it used (provenance stamping).', 'When a tenant\'s forked prompt produces an answer, the run\'s <code>messages.metadata</code> and its trace root span are stamped with a small <code>realmProvenance</code> object — e.g. <code>{ kind: "own_override", ownerTenantId: "acme" }</code> (or <code>inherited</code> from a parent, or omitted entirely for the plain global). So "which prompt version produced this output, for this tenant?" is answerable fleet-wide, per run.')}
+`)}
+
+${section('ten-drift', 'Safe updates &amp; drift — ship new defaults without clobbering edits', `
+<p>The hard part of per-tenant config is shipping <em>updates</em>. If you improve the built-in "support agent" prompt, what happens to the tenants who customised it? The realm handles this with a <strong>version log</strong> + a <strong>reconcile</strong> step (the same idea as a package manager updating a config file you may have hand-edited).</p>
+
+<ul>
+<li><strong>A tenant that never customised</strong> the prompt → silently gets your new version. Nothing to do.</li>
+<li><strong>A tenant that customised it</strong> → keeps <em>their</em> edit. Their fork is flagged so an operator can review the new upstream default and merge if they want.</li>
+</ul>
+
+<p>Each customization carries a <strong>drift state</strong> so you always know where it stands: <code>in_sync</code> (matches the global), <code>customized</code> (edited, upstream unchanged), <code>stale</code> (upstream shipped a new version the tenant hasn't adopted), or <code>diverged</code> (both the tenant AND upstream changed — needs a human). It's computed by comparing three content hashes: the fork's baseline, its current content, and the latest published default.</p>
+
+${callout('tip', '🎚️', 'Turn a built-in off (or reprioritise it) for one tenant — without copying it.', 'Sometimes a tenant doesn\'t want a <em>different</em> version of a skill, they just want it <strong>disabled</strong> or ranked lower — for themselves only. The <strong>state overlay</strong> is a tiny per-(tenant, item) sidecar that flips <code>enabled</code>/<code>priority</code>/<code>pinnedVersion</code> without forking the whole row. Empty overlay = today\'s behaviour (everyone shares the default). It\'s the feature-flag / Kustomize-overlay pattern for shared built-ins.')}
+`)}
+
+${section('ten-share', 'Share down the org tree &amp; promote good ideas up', `
+<p>Tenants aren't flat — an org can have sub-tenants (regions, departments, teams). The realm resolves against the <strong>real tenant tree</strong>, so a parent org can customise a prompt once and have every child inherit it (a child that makes its own copy still wins for itself — nearest-owner-wins).</p>
+
+<ul>
+<li><strong>Share</strong> a fork down the subtree, and ask <strong>blast radius</strong> "who will this reach?" — it returns which descendants <em>inherit</em> it, which are <em>shadowed</em> by their own copy, and which are <em>out of scope</em>.</li>
+<li><strong>Promote</strong> a great tenant customization <em>up</em> to become the new global default for everyone (<code>promoteFork</code>) — the flywheel where one team's improvement becomes the shared baseline.</li>
+</ul>
+
+${callout('info', '🌳', 'Two engines, identical results.', 'All of this works byte-for-byte identically on SQLite (the community default) and Postgres — resolution lives in a portable adapter predicate + content hash, not in database-specific row-level-security. Content hashes are canonical + stable across both engines, so a fork\'s drift state and provenance are the same wherever you run.')}
+`)}
+`;
 }
 
 // ── Section: Redaction ────────────────────────────────────────────────────
@@ -6043,7 +6101,7 @@ export function getDocsHTML(): string {
     { id: 'replay',       label: 'Replay',           icon: '⏮️', group: 'Operations',
       subs: ['replay-record','replay-replay'] },
     { id: 'tenancy',      label: 'Tenancy',          icon: '🏢', group: 'Operations',
-      subs: ['ten-context','ten-budget','ten-caps'] },
+      subs: ['ten-context','ten-budget','ten-caps','ten-realm','ten-drift','ten-share'] },
     { id: 'compliance',   label: 'Compliance',       icon: '📋', group: 'Operations',
       subs: ['comp-setup','comp-consent','comp-gdpr'] },
     { id: 'durability',   label: 'Durability',       icon: '💾', group: 'Operations',
@@ -6751,6 +6809,9 @@ var SEARCH_IDX = [
   {s:'tenancy',     t:'Tenant Context',              k:'tenant context tenantid propagation multi-tenant isolation', sub:'ten-context'},
   {s:'tenancy',     t:'Per-Tenant Budget Enforcement',k:'budget tenant spend USD cap monthly enforcement', sub:'ten-budget'},
   {s:'tenancy',     t:'Capability Bindings',          k:'capability binding tool policy subscription tier agent mesh', sub:'ten-caps'},
+  {s:'tenancy',     t:'Per-tenant config (Tenancy Realm)', k:'realm per-tenant fork customize prompt skill guardrail routing cost policy nearest owner wins provenance content forking multi-tenant override', sub:'ten-realm'},
+  {s:'tenancy',     t:'Safe updates & drift',         k:'drift reconcile version log in_sync customized stale diverged state overlay disable pin per tenant update defaults', sub:'ten-drift'},
+  {s:'tenancy',     t:'Share down & promote up',      k:'share subtree blast radius promote fork hierarchy tenant tree inherit shadowed', sub:'ten-share'},
   // Compliance
   {s:'compliance',  t:'Durable Compliance Stores',    k:'compliance legal hold consent residency retention deletion gdpr', sub:'comp-setup'},
   {s:'compliance',  t:'Consent Management',           k:'consent gdpr purpose grant revoke subject', sub:'comp-consent'},
