@@ -178,6 +178,45 @@ Resolution runs **byte-for-byte identically on SQLite and Postgres** (built on t
 `@weaveintel/realm` engine). **Configure:** Admin → the relevant area (Governance / Prompts / Routing / Cost)
 → the row's **Customize** action.
 
+#### Governing the shared defaults
+
+Changing what *one* tenant sees is safe — a copy only affects its owner. Changing the **global default**
+changes what *every* tenant sees, so those actions are **platform-admin only** and go through review.
+
+- **Propose, then review.** A tenant admin who improves their copy can *propose* it as the new global
+  default. Nothing changes yet: it lands in a queue, and only a platform admin may approve (which performs
+  the promote) or reject. Re-proposing the same copy updates the open proposal rather than stacking
+  duplicates, and a failed promote leaves it `pending` instead of falsely reading as approved.
+  ```bash
+  curl -X POST /api/admin/realm/proposals \
+    -d '{ "family": "guardrails", "forkId": "FORK_ID", "note": "catches more PII" }'
+  curl '/api/admin/realm/proposals?status=pending'      # the review queue
+  curl -X POST /api/admin/realm/proposals/ID/approve    # platform admin → promotes it
+  ```
+- **Pin a version.** A tenant can pin a shared default to a specific published version — "keep giving me
+  v3 of the support prompt even after v4 ships" — *without* copying it. Runs then serve v3's exact
+  historical text. A pin to a version that never existed is ignored, so a stale pin can never take the
+  assistant offline. (A tenant's own copy already opts out of upstream changes, so a copy beats a pin.)
+- **Deprecate a default.** Retire a built-in without breaking anyone: tenants already using it keep
+  resolving it, but it can gain **no new customisations**, and it can name its replacement.
+  ```bash
+  curl -X POST /api/admin/realm/prompts/GLOBAL_ID/deprecate \
+    -d '{ "note": "superseded", "supersededById": "NEW_ID" }'
+  ```
+- **Customize, don't duplicate.** If you can already *see* a record under a key (a global, or a parent
+  org's shared copy), creating a second one under that key is refused with a `409` naming the record to
+  customize instead — so one key never has two competing definitions.
+- **Reparent a tenant.** Moving a tenant under a new parent changes its lineage, and therefore everything
+  it *inherits*. The move is cycle-safe, reports the whole affected subtree, and flushes tenant-keyed caches.
+  ```bash
+  curl -X POST /api/admin/tenants/emea/reparent -d '{ "newParentTenantId": "apac" }'
+  # → { ok, from: {...}, to: {...}, affectedTenantIds: ["emea", "uk"] }
+  ```
+
+Every family — prompts, prompt fragments, skills, worker agents, guardrails, tool policies, routing and
+cost policies, and the prompt catalog — supports `customize`, `revert`, `propose`, and `deprecate` through
+the same shaped endpoints.
+
 ---
 
 ## Configuration reference

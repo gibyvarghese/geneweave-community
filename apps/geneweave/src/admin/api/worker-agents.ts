@@ -9,6 +9,7 @@ import type { DatabaseAdapter } from '../../db.js';
 import type { WorkerAgentRow } from '../../db-types.js';
 import { buildTenantWorkerAgentFork } from '../../worker-agent-realm.js';
 import type { RouterLike, AdminHelpers } from './types.js';
+import { guardCustomizable, guardKeyCollision } from './realm-guards.js';
 
 export function registerWorkerAgentRoutes(
   router: RouterLike,
@@ -56,6 +57,8 @@ export function registerWorkerAgentRoutes(
     const global = await db.getWorkerAgent(params['id']!);
     if (!global) { json(res, 404, { error: 'Worker agent not found' }); return; }
     if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global worker, not an existing tenant copy' }); return; }
+    // D15: a deprecated global default may not gain new forks (existing forks keep working).
+    if (!guardCustomizable(json, res, global)) return;
     const raw = await readBody(req);
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
@@ -99,6 +102,8 @@ export function registerWorkerAgentRoutes(
       json(res, 400, { error: 'name and description required' });
       return;
     }
+    // D17: if the caller can already SEE this logical key, they must Customize it, not create a twin.
+    if (!await guardKeyCollision(json, res, db, 'worker_agents', String(body['name']), auth)) return;
     const validatedDescription = requireDetailedDescription(body['description'], 'agent', res);
     if (!validatedDescription) return;
 

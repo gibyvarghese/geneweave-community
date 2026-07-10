@@ -24,6 +24,7 @@ import {
 import type { ChatSettings } from './chat-runtime.js';
 import type { DatabaseAdapter } from './db.js';
 import { resolveTenantEffectivePrompt } from './chat-realm-prompt.js';
+import { applyPinnedContent } from './realm-pinned-version.js';
 import type { RealmProvenance } from '@weaveintel/realm';
 
 // ── Types ───────────────────────────────────────────────────
@@ -54,6 +55,12 @@ export interface ResolvedSystemPrompt {
    * so "which prompt version produced this output for this tenant?" is answerable.
    */
   realm?: RealmProvenance;
+  /**
+   * Tenancy Realm (D14): the published version this tenant PINNED the shared default to. Present only
+   * when a pin was actually applied — i.e. the tenant pinned a version that exists in the version log
+   * and has no fork of its own. The served content is that historical version, not the current default.
+   */
+  realmPinnedVersion?: number;
 }
 
 // ── System prompt resolution ────────────────────────────────
@@ -92,8 +99,22 @@ export async function resolveSystemPrompt(
     // Phase 4: resolve against the tenant's real lineage so a PARENT org's shared prompt fork wins too.
     const realmCtx = baseMatch && tenantId ? await db.realmContext(tenantId) : undefined;
     const effective = baseMatch ? resolveTenantEffectivePrompt(rows, baseMatch, tenantId, realmCtx) : undefined;
-    const match = effective?.row;
     const realmProvenance = effective?.provenance;
+
+    // Tenancy Realm (D14): if this tenant pinned the SHARED default to a published version, serve that
+    // historical content instead of the current one. A tenant's own fork already opts out of upstream
+    // changes, so `applyPinnedContent` leaves a fork untouched; a pin to a never-published version is
+    // ignored rather than fatal, so a stale pin can never take the assistant offline.
+    let match = effective?.row;
+    let pinnedVersion: number | undefined;
+    if (match && tenantId) {
+      const logicalKey = match.logical_key ?? match.key ?? match.id;
+      const pins = await db.resolveRealmPinnedVersions('prompts', tenantId, [logicalKey]);
+      const pin = pins.get(logicalKey);
+      const pinnedRow = applyPinnedContent('prompts', match, pin, tenantId);
+      if (pinnedRow !== match) { match = pinnedRow; pinnedVersion = pin?.version; }
+    }
+
     if (match) {
       const versions = await db.listPromptVersions(match.id);
       const experiments = await db.listPromptExperiments(match.id);
@@ -188,6 +209,8 @@ export async function resolveSystemPrompt(
         resolution: resolved.meta,
         // Only stamp realm when a tenant fork/native/inherited copy actually won (not the plain global).
         ...(realmProvenance && realmProvenance.kind !== 'global' ? { realm: realmProvenance } : {}),
+        // Stamp the pin only when one was actually applied (D14).
+        ...(pinnedVersion !== undefined ? { realmPinnedVersion: pinnedVersion } : {}),
       };
     }
   } catch (err) {

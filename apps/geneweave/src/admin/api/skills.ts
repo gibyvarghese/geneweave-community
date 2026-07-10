@@ -10,6 +10,7 @@ import type { SkillRow } from '../../db-types.js';
 import { scanSkillForThreats } from '../../skill-capabilities.js';
 import { buildTenantSkillFork, resolveTenantEffectiveSkills } from '../../skill-realm.js';
 import type { RouterLike, AdminHelpers } from './types.js';
+import { guardCustomizable } from './realm-guards.js';
 
 // Phase-1 composition edges (m148 columns). The skills table stores these as JSON arrays / ints; the
 // row→skill mapper reads them via the app's composition layer. Extract them from an admin request body.
@@ -69,6 +70,8 @@ export function registerSkillRoutes(
     const global = await db.getSkill(params['id']!);
     if (!global) { json(res, 404, { error: 'Skill not found' }); return; }
     if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global skill, not an existing tenant copy' }); return; }
+    // D15: a deprecated global default may not gain new forks (existing forks keep working).
+    if (!guardCustomizable(json, res, global)) return;
     const raw = await readBody(req);
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }

@@ -10,6 +10,7 @@ import { newUUIDv7 } from '@weaveintel/core';
 import type { DatabaseAdapter } from '../../db.js';
 import type { ToolPolicyRow } from '../../db-types.js';
 import type { RouterLike, AdminHelpers } from './types.js';
+import { guardCustomizable, guardKeyCollision } from './realm-guards.js';
 import { buildTenantToolPolicyFork } from '../../tool-policy-realm.js';
 
 export function registerToolPolicyRoutes(
@@ -60,6 +61,8 @@ export function registerToolPolicyRoutes(
     const global = await db.getToolPolicy(params['id']!);
     if (!global) { json(res, 404, { error: 'Tool policy not found' }); return; }
     if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global policy, not an existing tenant copy' }); return; }
+    // D15: a deprecated global default may not gain new forks (existing forks keep working).
+    if (!guardCustomizable(json, res, global)) return;
     const raw = await readBody(req);
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
@@ -102,6 +105,8 @@ export function registerToolPolicyRoutes(
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
     if (!body['key']) { json(res, 400, { error: 'key required' }); return; }
     if (!body['name']) { json(res, 400, { error: 'name required' }); return; }
+    // D17: if the caller can already SEE this logical key, they must Customize it, not create a twin.
+    if (!await guardKeyCollision(json, res, db, 'tool_policies', String(body['key']), auth)) return;
 
     const id = newUUIDv7();
     await db.createToolPolicy({

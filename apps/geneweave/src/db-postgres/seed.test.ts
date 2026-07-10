@@ -551,4 +551,113 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     expect(after).toEqual(before);
     expect(Number(capAfter[0].n)).toBe(Number(capBefore[0].n));
   });
+
+  // ── Tenancy Realm Section D (write path & governance) ──
+  // Declared LAST on purpose: promote appends a realm_versions row and deprecation mutates a global,
+  // which would break the count/hash parity assertions above if these ran first (fork-pollution).
+  it('Section D (m160): realm_proposals + the deprecation columns exist on every realm table, on both engines', async () => {
+    const { REALM_FAMILIES } = await import('../realm-families.js');
+    // realm_proposals + its partial unique index (one PENDING proposal per fork)
+    const { rows: t } = await pool.query(`SELECT to_regclass('public.realm_proposals') IS NOT NULL AS ok`);
+    expect((t[0] as { ok: boolean }).ok).toBe(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((sq as any).d.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='realm_proposals'`).get()).toBeTruthy();
+
+    for (const spec of Object.values(REALM_FAMILIES)) {
+      const { rows: c } = await pool.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name IN ('deprecated_at','deprecation_note','superseded_by_id')`,
+        [spec.table],
+      );
+      expect((c as Array<{ column_name: string }>).map((r) => r.column_name).sort(), `pg ${spec.table}`)
+        .toEqual(['deprecated_at', 'deprecation_note', 'superseded_by_id']);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const names = ((sq as any).d.prepare(`PRAGMA table_info(${spec.table})`).all() as Array<{ name: string }>).map((x) => x.name);
+      for (const col of ['deprecated_at', 'deprecation_note', 'superseded_by_id']) {
+        expect(names, `sqlite ${spec.table}.${col}`).toContain(col);
+      }
+    }
+  });
+
+  it('Section D: propose → approve (generic promote), deprecation, and reparent behave identically on both engines', async () => {
+    const {
+      promoteRealmForkToGlobal, proposeRealmFork, approveRealmProposal, rejectRealmProposal,
+      deprecateRealmRecord, checkVisibleKeyCollision, reparentTenant,
+    } = await import('../realm-governance.js');
+    const { createSqlTenantHierarchy } = await import('@weaveintel/identity');
+
+    for (const [db, client, dialect] of [
+      [pg, pool as unknown as import('@weaveintel/realm').SqlClient, 'postgres'],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [sq, { async query(t: string, p: unknown[] = []) { const s = (sq as any).d.prepare(t); return /^\s*(SELECT|PRAGMA|WITH)/i.test(t) ? { rows: s.all(...p) } : (s.run(...p), { rows: [] }); } }, 'sqlite'],
+    ] as const) {
+      const org = createSqlTenantHierarchy({ client, dialect, table: 'tenants', ensureSchema: false });
+      await org.create({ id: 'd-root', name: 'R' });
+      await org.create({ id: 'd-emea', name: 'E', parentTenantId: 'd-root' });
+      await org.create({ id: 'd-uk', name: 'U', parentTenantId: 'd-emea' });
+
+      const base = (await db.listPrompts()).find((p) => (p.realm ?? 'global') === 'global' && !!p.template)!;
+      const key = base.logical_key ?? base.key!;
+      await db.insertRealmPromptRow(buildTenantPromptFork(base, 'd-emea', { template: 'D-SECTION PROMOTED' }));
+      const fork = (await db.listPrompts()).find((p) => p.realm === 'tenant' && p.owner_tenant_id === 'd-emea' && (p.logical_key ?? p.key) === key)!;
+
+      // D12: propose is idempotent per fork, approve promotes, double-review is refused.
+      const p1 = await proposeRealmFork(client, dialect, 'prompts', fork.id, { note: 'a' });
+      const p2 = await proposeRealmFork(client, dialect, 'prompts', fork.id, { note: 'b' });
+      expect(p2.proposal!.id, `${dialect}: one pending proposal per fork`).toBe(p1.proposal!.id);
+      expect((await approveRealmProposal(client, dialect, p1.proposal!.id, { reviewer: 'plat' })).ok).toBe(true);
+      expect((await db.listPrompts()).find((p) => p.id === base.id)!.template).toBe('D-SECTION PROMOTED');
+      expect((await rejectRealmProposal(client, dialect, p1.proposal!.id, {})).reason).toMatch(/already approved/);
+      // promoting the (now identical) fork again is still a valid no-op promote, not an error
+      expect((await promoteRealmForkToGlobal(client, dialect, 'prompts', fork.id)).ok).toBe(true);
+
+      // D17: the promoted key is visible to uk → must customize, not create a twin.
+      const ctxUk = await db.realmContext('d-uk');
+      expect((await checkVisibleKeyCollision(client, dialect, 'prompts', key, ctxUk)).collides).toBe(true);
+      expect((await checkVisibleKeyCollision(client, dialect, 'prompts', 'no-such-key', ctxUk)).collides).toBe(false);
+
+      // D15: deprecate blocks new proposals but the record still resolves.
+      expect((await deprecateRealmRecord(client, dialect, 'prompts', base.id, { note: 'retired' })).ok).toBe(true);
+      expect((await proposeRealmFork(client, dialect, 'prompts', fork.id, {})).reason).toMatch(/deprecated/);
+      expect((await db.listPrompts()).find((p) => p.id === base.id)!.template).toBe('D-SECTION PROMOTED');
+      expect((await deprecateRealmRecord(client, dialect, 'prompts', base.id, { supersededById: base.id })).reason).toMatch(/supersede itself/);
+
+      // D16: reparent moves the subtree, reports it, and is cycle-safe.
+      const moved = await reparentTenant(client, dialect, 'd-emea', null);
+      expect(moved.ok).toBe(true);
+      expect(moved.to!.parentTenantId).toBeNull();
+      expect(new Set(moved.affectedTenantIds), `${dialect}: subtree`).toEqual(new Set(['d-emea', 'd-uk']));
+      expect((await reparentTenant(client, dialect, 'd-emea', 'd-uk')).ok, `${dialect}: cycle refused`).toBe(false);
+      expect((await reparentTenant(client, dialect, 'ghost', null)).reason).toBe('tenant not found');
+    }
+  });
+
+  it('Section D13 (prompt_fragments): a tenant fork resolves under the canonical key on both engines', async () => {
+    const { buildTenantPromptFragmentFork, fragmentContentHash } = await import('../prompt-fragment-realm.js');
+    for (const db of [pg, sq]) {
+      const id = randomUUID();
+      await db.createPromptFragment({
+        id, key: 'd13.frag', name: 'F', description: null, category: null,
+        content: 'GLOBAL FRAG', variables: null, tags: null, version: '1', enabled: 1,
+      });
+      // Classify as a global realm original. The hash must be a REAL sha256 over the semantic fields:
+      // the Phase-1 parity test asserts every global's content_hash starts with 'sha256:'.
+      const h = fragmentContentHash({ name: 'F', description: null, category: null, content: 'GLOBAL FRAG', variables: null });
+      await (db === pg
+        ? pool.query(`UPDATE prompt_fragments SET realm='global', logical_key='d13.frag', content_hash=$2 WHERE id=$1`, [id, h])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : Promise.resolve((sq as any).d.prepare(`UPDATE prompt_fragments SET realm='global', logical_key='d13.frag', content_hash=? WHERE id=?`).run(h, id)));
+
+      const global = (await db.listPromptFragments()).find((f) => f.id === id)!;
+      const fork = buildTenantPromptFragmentFork(global, 'd-frag-tenant', { content: 'TENANT FRAG' });
+      expect(fork.key).toBe('d13.frag#d-frag-tenant');   // UNIQUE(key) → aliased
+      expect(fork.logical_key).toBe('d13.frag');
+      await db.insertRealmPromptFragmentRow(fork);
+
+      const eff = (await db.resolveTenantEffectivePromptFragments('d-frag-tenant')).find((f) => (f.logical_key ?? f.key) === 'd13.frag')!;
+      expect(eff.content).toBe('TENANT FRAG');
+      expect(eff.key, 'canonical key restored so {{>key}} still resolves').toBe('d13.frag');
+      // globals-only for no tenant
+      expect((await db.resolveTenantEffectivePromptFragments(null)).some((f) => f.content === 'TENANT FRAG')).toBe(false);
+    }
+  });
 });

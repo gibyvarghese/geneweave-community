@@ -12,6 +12,7 @@ import { newUUIDv7 } from '@weaveintel/core';
 import type { ServerResponse, IncomingMessage } from 'node:http';
 import type { DatabaseAdapter } from '../../db.js';
 import type { RouterLike } from './types.js';
+import { guardCustomizable, guardKeyCollision } from './realm-guards.js';
 import { buildTenantCostPolicyFork } from '../../cost-policy-realm.js';
 
 export interface CostPolicyRouteHelpers {
@@ -68,6 +69,8 @@ export function registerCostPolicyRoutes(
     const global = await db.getCostPolicy(params['id']!);
     if (!global) { json(res, 404, { error: 'Cost policy not found' }); return; }
     if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global policy, not an existing tenant copy' }); return; }
+    // D15: a deprecated global default may not gain new forks (existing forks keep working).
+    if (!guardCustomizable(json, res, global)) return;
     const raw = await readBody(req);
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
@@ -120,6 +123,9 @@ export function registerCostPolicyRoutes(
     }
     const existing = await db.getCostPolicyByKey(key);
     if (existing) { json(res, 409, { error: 'Cost policy with this key already exists' }); return; }
+    // D17: the flat check above only sees globals. This also catches a key made visible to the
+    // caller by an ancestor org's shared fork — customize that instead of creating a twin.
+    if (!await guardKeyCollision(json, res, db, 'cost_policies', key, auth)) return;
 
     let leversJson: string | null = null;
     if (body['levers_json'] != null) {
