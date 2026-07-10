@@ -4347,6 +4347,8 @@ curl -X DELETE '/api/admin/guardrails/GLOBAL_ID/customize?tenantId=acme'`)}
 <p>Under the hood every family is a thin bridge over the framework resolver <code>@weaveintel/realm</code> (<code>resolveEffective</code>), so the resolution logic is written once and reused. At request time the chat path resolves the tenant-effective prompt / strategy / guardrails / routing / cost / tool policies automatically — a tenant's fork applies only to that tenant, and a fork never leaks to anyone else.</p>
 
 ${callout('info', '🧾', 'Every run records which copy it used (provenance stamping).', 'When a tenant\'s forked prompt produces an answer, the run\'s <code>messages.metadata</code> and its trace root span are stamped with a small <code>realmProvenance</code> object — e.g. <code>{ kind: "own_override", ownerTenantId: "acme" }</code> (or <code>inherited</code> from a parent, or omitted entirely for the plain global). So "which prompt version produced this output, for this tenant?" is answerable fleet-wide, per run.')}
+
+${callout('tip', '🏢', 'Three more per-tenant settings now inherit down the org tree too.', 'A few settings used to be a flat "this tenant\'s row, else the global one" lookup — a child tenant could never inherit what its parent org had set. They now resolve with the same <strong>nearest-owner-wins</strong> rule as a fork, so a parent org configures once and children inherit unless they set their own: <strong>(1) model-routing weight overrides</strong> — how much a tenant favours cost vs. speed vs. quality for a task; <strong>(2) model capability scores</strong> — a tenant\'s tuned quality score for a given model + task; and <strong>(3) weaveNotes AI-action modes</strong> — whether "turn this into a diagram", freehand ink, restructure, etc. runs directly, hands off to an agent, or goes through a supervisor. Set nothing and every tenant keeps the shared global default, exactly as before.')}
 `)}
 
 ${section('ten-drift', 'Safe updates &amp; drift — ship new defaults without clobbering edits', `
@@ -6809,7 +6811,7 @@ var SEARCH_IDX = [
   {s:'tenancy',     t:'Tenant Context',              k:'tenant context tenantid propagation multi-tenant isolation', sub:'ten-context'},
   {s:'tenancy',     t:'Per-Tenant Budget Enforcement',k:'budget tenant spend USD cap monthly enforcement', sub:'ten-budget'},
   {s:'tenancy',     t:'Capability Bindings',          k:'capability binding tool policy subscription tier agent mesh', sub:'ten-caps'},
-  {s:'tenancy',     t:'Per-tenant config (Tenancy Realm)', k:'realm per-tenant fork customize prompt skill guardrail routing cost policy nearest owner wins provenance content forking multi-tenant override', sub:'ten-realm'},
+  {s:'tenancy',     t:'Per-tenant config (Tenancy Realm)', k:'realm per-tenant fork customize prompt skill guardrail routing cost policy nearest owner wins provenance content forking multi-tenant override note action mode capability score routing weights org tree inherit hierarchy', sub:'ten-realm'},
   {s:'tenancy',     t:'Safe updates & drift',         k:'drift reconcile version log in_sync customized stale diverged state overlay disable pin per tenant update defaults', sub:'ten-drift'},
   {s:'tenancy',     t:'Share down & promote up',      k:'share subtree blast radius promote fork hierarchy tenant tree inherit shadowed', sub:'ten-share'},
   // Compliance

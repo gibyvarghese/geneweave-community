@@ -66,7 +66,11 @@ export class CapabilityMatrixCache {
       return hit.value;
     }
     this.misses++;
-    const value = await db.listCapabilityScores({ tenantId });
+    // Tenancy Realm (C11): resolve the tenant-EFFECTIVE scores nearest-owner-wins down the lineage
+    // (own row → nearest ancestor org's row → global default per cell) rather than the flat
+    // own-plus-globals merge — so a child tenant inherits a parent org's tuned scores. Null tenant →
+    // globals only (unchanged).
+    const value = await db.resolveTenantEffectiveCapabilityScores(tenantId);
     this.capabilityScores.set(key, { value, expiresAt: now + this.ttlMs });
     return value;
   }
@@ -104,20 +108,16 @@ export class CapabilityMatrixCache {
   }
 
   /**
-   * Tenancy Realm (B7): invalidate the capability-score cache with the right tenant fan-out.
-   * capability_scores are flat (a row is either GLOBAL, tenant_id=NULL, or specific to one tenant — a
-   * child tenant inherits only globals, not a parent tenant's scores), so:
-   *   • a SPECIFIC tenant's row changed  → drop only that tenant's cache key.
-   *   • a GLOBAL row changed (tenantId null) or a bulk/unknown change (omitted) → clear ALL keys,
-   *     because every tenant's effective set = its own rows + the globals that just changed.
-   * Passing nothing preserves the old "flush everything" behaviour for existing callers.
+   * Tenancy Realm (C11): invalidate the capability-score cache. Under the realm, a tenant's effective
+   * scores are resolved nearest-owner-wins down its lineage, so ANY write — a global, or one tenant's
+   * row — can change the effective set of that tenant AND every descendant that inherits it. The cache
+   * doesn't hold the tenant tree, so the correct (and safe) move is to clear ALL keys on any write; the
+   * 60 s TTL and cheap rebuild make this inexpensive. (Before C11 scores were flat — a child inherited
+   * only globals — so a specific-tenant write could drop just that key; hierarchy inheritance ended that.)
+   * The `tenantId` argument is accepted for call-site compatibility but no longer narrows the flush.
    */
-  invalidateCapabilityScores(tenantId?: string | null): void {
-    if (typeof tenantId === 'string') {
-      this.capabilityScores.delete(tenantId);
-    } else {
-      this.capabilityScores.clear(); // global write or unspecified → every tenant inherits globals
-    }
+  invalidateCapabilityScores(_tenantId?: string | null): void {
+    this.capabilityScores.clear();
     this.invalidations++;
   }
 

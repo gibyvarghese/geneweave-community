@@ -1,31 +1,36 @@
 // SPDX-License-Identifier: MIT
 /**
- * Tenancy Realm (B7) — the capability-matrix cache is tenant-keyed and its invalidation fans out by
- * family: a SPECIFIC tenant's write clears only that tenant's cache entry; a GLOBAL write (tenant_id
- * null) or an unspecified flush clears ALL tenants (they all inherit the globals that changed).
- * Positive / negative / stress / security coverage with a fake adapter that counts DB reads.
+ * Tenancy Realm (C11) — the capability-matrix cache is tenant-keyed and reads through the realm
+ * resolver (`resolveTenantEffectiveCapabilityScores`): a tenant's scores are its own rows resolved
+ * nearest-owner-wins over its ancestors and the globals. Because ANY write — global or a single
+ * tenant's — can change the effective set of that tenant AND every descendant that inherits it, the
+ * cache clears ALL keys on any capability-score invalidation (the tenant tree isn't held in the cache).
+ * Positive / negative / stress / security coverage with a fake adapter that counts DB reads per tenant.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CapabilityMatrixCache } from './capability-matrix-cache.js';
 import type { DatabaseAdapter, ModelCapabilityScoreRow } from './db-types.js';
 
-/** A fake adapter whose listCapabilityScores returns one tenant-tagged row and counts reads per tenant. */
+/** A fake adapter whose resolver returns one tenant-tagged row and counts reads per tenant. */
 function fakeDb(): { db: DatabaseAdapter; reads: Map<string, number> } {
   const reads = new Map<string, number>();
+  const rowFor = (tenantId: string | null): ModelCapabilityScoreRow => ({
+    id: `s-${tenantId ?? '__global__'}`, tenant_id: tenantId, model_id: 'm', provider: 'p', task_key: 'k',
+    quality_score: 1, supports_tools: 1, supports_streaming: 1, supports_thinking: 0, supports_json_mode: 0,
+    supports_vision: 0, max_output_tokens: null, benchmark_source: null, raw_benchmark_score: null, is_active: 1,
+    last_evaluated_at: null, production_signal_score: null, signal_sample_count: 0, created_at: '', updated_at: '' });
   const db = {
-    async listCapabilityScores(opts?: { tenantId?: string | null }): Promise<ModelCapabilityScoreRow[]> {
-      const t = opts?.tenantId ?? '__global__';
+    // The cache reads through the realm resolver in C11 (not the flat listCapabilityScores).
+    async resolveTenantEffectiveCapabilityScores(tenantId: string | null): Promise<ModelCapabilityScoreRow[]> {
+      const t = tenantId ?? '__global__';
       reads.set(t, (reads.get(t) ?? 0) + 1);
-      return [{ id: `s-${t}`, tenant_id: opts?.tenantId ?? null, model_id: 'm', provider: 'p', task_key: 'k',
-        quality_score: 1, supports_tools: 1, supports_streaming: 1, supports_thinking: 0, supports_json_mode: 0,
-        supports_vision: 0, max_output_tokens: null, benchmark_source: null, raw_benchmark_score: null, is_active: 1,
-        last_evaluated_at: null, production_signal_score: null, signal_sample_count: 0, created_at: '', updated_at: '' }];
+      return [rowFor(tenantId)];
     },
   } as unknown as DatabaseAdapter;
   return { db, reads };
 }
 
-describe('Tenancy Realm (B7) — capability-matrix cache tenant fan-out', () => {
+describe('Tenancy Realm (C11) — capability-matrix cache lineage read + invalidation', () => {
   let cache: CapabilityMatrixCache;
   let f: ReturnType<typeof fakeDb>;
   beforeEach(() => { cache = new CapabilityMatrixCache({ ttlMs: 60_000 }); f = fakeDb(); });
@@ -40,17 +45,24 @@ describe('Tenancy Realm (B7) — capability-matrix cache tenant fan-out', () => 
     expect(f.reads.get('__global__')).toBe(1); // distinct keys, no collision
   });
 
-  it('FAN-OUT: a specific tenant write clears ONLY that tenant; others stay cached', async () => {
-    await cache.getCapabilityScores(f.db, 'acme');
-    await cache.getCapabilityScores(f.db, 'globex');
-    cache.invalidateCapabilityScores('acme');           // acme's row changed
-    await cache.getCapabilityScores(f.db, 'acme');       // re-reads
-    await cache.getCapabilityScores(f.db, 'globex');     // still cached
-    expect(f.reads.get('acme')).toBe(2);
-    expect(f.reads.get('globex')).toBe(1);
+  it('READ-THROUGH: the cache resolves via the realm lineage resolver, keyed by tenant', async () => {
+    const rows = await cache.getCapabilityScores(f.db, 'acme');
+    expect(rows[0]!.tenant_id).toBe('acme'); // resolver output, keyed to the asking tenant
+    const globals = await cache.getCapabilityScores(f.db, null);
+    expect(globals[0]!.tenant_id).toBeNull();
   });
 
-  it('FAN-OUT: a GLOBAL write (tenant_id null) clears ALL tenants', async () => {
+  it('INVALIDATION: a specific tenant write clears ALL keys (descendants may inherit it)', async () => {
+    await cache.getCapabilityScores(f.db, 'acme');
+    await cache.getCapabilityScores(f.db, 'globex');
+    cache.invalidateCapabilityScores('acme');           // acme's row changed → any descendant is affected
+    await cache.getCapabilityScores(f.db, 'acme');       // re-reads
+    await cache.getCapabilityScores(f.db, 'globex');     // also re-reads (conservative, correct)
+    expect(f.reads.get('acme')).toBe(2);
+    expect(f.reads.get('globex')).toBe(2);
+  });
+
+  it('INVALIDATION: a GLOBAL write (tenant_id null) clears ALL tenants', async () => {
     await cache.getCapabilityScores(f.db, 'acme');
     await cache.getCapabilityScores(f.db, 'globex');
     await cache.getCapabilityScores(f.db, null);
@@ -73,38 +85,33 @@ describe('Tenancy Realm (B7) — capability-matrix cache tenant fan-out', () => 
     expect(f.reads.get('globex')).toBe(2);
   });
 
-  it('NEGATIVE: invalidating a tenant that was never cached is a no-op (no throw, others intact)', async () => {
+  it('NEGATIVE: invalidating with an unknown tenant id still just clears (no throw)', async () => {
     await cache.getCapabilityScores(f.db, 'acme');
     expect(() => cache.invalidateCapabilityScores('never-cached')).not.toThrow();
     await cache.getCapabilityScores(f.db, 'acme');
-    expect(f.reads.get('acme')).toBe(1); // untouched
+    expect(f.reads.get('acme')).toBe(2); // cleared → re-read
   });
 
   it('SECURITY: a hostile tenant key is an opaque Map key — no cross-tenant leak or corruption', async () => {
     const hostile = "'; DROP TABLE model_capability_scores; --";
-    await cache.getCapabilityScores(f.db, hostile);
-    await cache.getCapabilityScores(f.db, 'acme');
-    cache.invalidateCapabilityScores(hostile);          // clearing the hostile key must not touch acme
-    await cache.getCapabilityScores(f.db, 'acme');
-    expect(f.reads.get('acme')).toBe(1);
-    // the hostile tenant only ever saw its OWN row
     const rows = await cache.getCapabilityScores(f.db, hostile);
+    // the hostile tenant only ever sees a row keyed to ITSELF (resolver output), never another tenant's
     expect(rows[0]!.tenant_id).toBe(hostile);
+    await cache.getCapabilityScores(f.db, 'acme');
+    expect(() => cache.invalidateCapabilityScores(hostile)).not.toThrow();
   });
 
-  it('STRESS: 500 tenants cached; invalidating one re-reads exactly one, all others stay hit', async () => {
+  it('STRESS: 500 tenants cached; all hit until an invalidation clears the whole matrix', async () => {
     const tenants = Array.from({ length: 500 }, (_, i) => `t-${i}`);
     for (const t of tenants) await cache.getCapabilityScores(f.db, t);
     for (const t of tenants) await cache.getCapabilityScores(f.db, t); // all hits
     for (const t of tenants) expect(f.reads.get(t)).toBe(1);
 
-    cache.invalidateCapabilityScores('t-250');
+    cache.invalidateCapabilityScores('t-250');            // any write clears the whole matrix
     for (const t of tenants) await cache.getCapabilityScores(f.db, t);
-    expect(f.reads.get('t-250')).toBe(2);               // only this one re-read
-    expect(f.reads.get('t-0')).toBe(1);
-    expect(f.reads.get('t-499')).toBe(1);
+    for (const t of tenants) expect(f.reads.get(t)).toBe(2); // every tenant re-read once
     const stats = cache.stats();
     expect(stats.invalidations).toBe(1);
-    expect(stats.hits).toBeGreaterThan(900);
+    expect(stats.hits).toBe(500);   // the 500 second-round hits; round 3 all miss after the clear-all
   }, 20_000);
 });

@@ -39,6 +39,12 @@ export interface IRoutingStore {
 
   // Capability scores
   listCapabilityScores(opts?: { taskKey?: string; tenantId?: string | null; modelId?: string; provider?: string }): Promise<ModelCapabilityScoreRow[]>;
+  /**
+   * Tenancy Realm (C11): the EFFECTIVE capability scores for a tenant, resolved per (provider, model,
+   * task) cell nearest-owner-wins down the lineage (own row → nearest ancestor org's row → global
+   * default). Null tenant → the globals only. Supersedes the flat own-plus-globals merge for routing.
+   */
+  resolveTenantEffectiveCapabilityScores(tenantId: string | null, taskKey?: string): Promise<ModelCapabilityScoreRow[]>;
   getCapabilityScore(id: string): Promise<ModelCapabilityScoreRow | null>;
   upsertCapabilityScore(row: Omit<ModelCapabilityScoreRow, 'created_at' | 'updated_at'>): Promise<void>;
   updateCapabilityScore(id: string, fields: Partial<Omit<ModelCapabilityScoreRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
@@ -56,6 +62,11 @@ export interface IRoutingStore {
 
   // Tenant overrides
   listTaskTypeTenantOverrides(opts?: { tenantId?: string; taskKey?: string }): Promise<TaskTypeTenantOverrideRow[]>;
+  /**
+   * Tenancy Realm (C9): the EFFECTIVE task-type overrides for a tenant, resolved nearest-owner-wins
+   * down the lineage (own row → nearest ancestor org's row → nothing). Null tenant → [] (no globals).
+   */
+  resolveTenantEffectiveTaskTypeOverrides(tenantId: string | null, taskKey?: string): Promise<TaskTypeTenantOverrideRow[]>;
   getTaskTypeTenantOverride(id: string): Promise<TaskTypeTenantOverrideRow | null>;
   createTaskTypeTenantOverride(row: Omit<TaskTypeTenantOverrideRow, 'created_at' | 'updated_at'>): Promise<void>;
   updateTaskTypeTenantOverride(id: string, fields: Partial<Omit<TaskTypeTenantOverrideRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;

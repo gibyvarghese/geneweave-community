@@ -358,6 +358,52 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
     }
   });
 
+  it('Section C10 (note_action_modes): Postgres now seeds the 5 global defaults, matching SQLite (parity-bug fix)', async () => {
+    // Before C10, only the SQLite m117 migration seeded these; Postgres had an empty table, so
+    // resolveNoteActionMode returned 'direct' for every action. The PG seed block restores parity.
+    const expected: Record<string, string> = { diagram: 'supervisor', ink: 'supervisor', visual: 'supervisor', restructure: 'supervisor', illustration: 'direct' };
+    for (const [action, mode] of Object.entries(expected)) {
+      expect(await pg.resolveNoteActionMode(null, action), `pg global ${action}`).toBe(mode);
+      expect(await sq.resolveNoteActionMode(null, action), `sq global ${action}`).toBe(mode);
+    }
+    const { rows } = await pool.query(`SELECT count(*)::int AS c FROM note_action_modes WHERE tenant_id = ''`);
+    expect((rows[0] as { c: number }).c).toBe(5);
+  });
+
+  it('Section C (note_action_modes + capability_scores): nearest-owner-wins down a real lineage on both engines', async () => {
+    const { createSqlTenantHierarchy } = await import('@weaveintel/identity');
+    for (const [db, client] of [
+      [pg, pool as unknown as import('@weaveintel/realm').SqlClient],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [sq, { async query(t: string, p: unknown[] = []) { const s = (sq as any).d.prepare(t); return /^\s*(SELECT|PRAGMA|WITH)/i.test(t) ? { rows: s.all(...p) } : (s.run(...p), { rows: [] }); } }],
+    ] as const) {
+      const org = createSqlTenantHierarchy({ client, dialect: db === pg ? 'postgres' : 'sqlite', table: 'tenants', ensureSchema: false });
+      await org.create({ id: 'c-acme', name: 'A' });
+      await org.create({ id: 'c-emea', name: 'E', parentTenantId: 'c-acme' });
+      await org.create({ id: 'c-uk', name: 'U', parentTenantId: 'c-emea' });
+      await org.create({ id: 'c-apac', name: 'P', parentTenantId: 'c-acme' });
+
+      // C10: emea sets diagram=direct; uk inherits it; apac (sibling) keeps the global 'supervisor'.
+      await db.createNoteActionMode({ id: randomUUID(), tenant_id: 'c-emea', action_key: 'diagram', mode: 'direct' });
+      expect(await db.resolveNoteActionMode('c-uk', 'diagram')).toBe('direct');
+      expect(await db.resolveNoteActionMode('c-apac', 'diagram')).toBe('supervisor');
+      // uk overrides for itself → own wins.
+      await db.createNoteActionMode({ id: randomUUID(), tenant_id: 'c-uk', action_key: 'diagram', mode: 'agent' });
+      expect(await db.resolveNoteActionMode('c-uk', 'diagram')).toBe('agent');
+
+      // C11: emea tunes a capability cell; uk inherits; apac gets the global; uk then overrides.
+      const cell = { model_id: 'gpt-cparity', provider: 'openai', task_key: 'reasoning' };
+      const scoreFields = { supports_tools: 1, supports_streaming: 1, supports_thinking: 0, supports_json_mode: 1, supports_vision: 0, max_output_tokens: null, benchmark_source: null, raw_benchmark_score: null, is_active: 1, last_evaluated_at: null, production_signal_score: null, signal_sample_count: 0 };
+      await db.upsertCapabilityScore({ id: randomUUID(), tenant_id: null, ...cell, quality_score: 40, ...scoreFields });
+      await db.upsertCapabilityScore({ id: randomUUID(), tenant_id: 'c-emea', ...cell, quality_score: 75, ...scoreFields });
+      const qOf = async (t: string | null) => (await db.resolveTenantEffectiveCapabilityScores(t, 'reasoning')).find((r) => r.model_id === 'gpt-cparity')?.quality_score;
+      expect(await qOf('c-uk')).toBe(75);   // inherits emea
+      expect(await qOf('c-apac')).toBe(40); // sibling → global
+      await db.upsertCapabilityScore({ id: randomUUID(), tenant_id: 'c-uk', ...cell, quality_score: 95, ...scoreFields });
+      expect(await qOf('c-uk')).toBe(95);   // own wins
+    }
+  });
+
   it('realm state overlay (Phase 3): disabling a built-in for a tenant behaves identically on both engines', async () => {
     const skill = (await pg.listEnabledSkills())[0]!.id;
     for (const db of [pg, sq]) {
