@@ -13,6 +13,13 @@
 import type { PgCtx } from '../db-postgres-ctx.js';
 import { promptDriftReport, resyncPromptToPackage } from '../realm-prompt-drift.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from '../realm-tenant-state.js';
+import { resolvePinnedVersions } from '../realm-pinned-version.js';
+import { resolveTenantEffectivePromptFragments as resolveEffectiveFragments } from '../prompt-fragment-realm.js';
+import {
+  promoteRealmForkToGlobal, proposeRealmFork, listRealmProposals, approveRealmProposal,
+  rejectRealmProposal, deprecateRealmRecord, undeprecateRealmRecord, checkVisibleKeyCollision,
+  reparentTenant, type ProposalStatus,
+} from '../realm-governance.js';
 import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from '../realm-hierarchy.js';
 import { resolveTenantEffectivePromptStrategies as resolveEffectiveStrategies, resolveTenantEffectivePromptContracts as resolveEffectiveContracts, resolveTenantEffectivePromptFrameworks as resolveEffectiveFrameworks } from '../prompt-catalog-realm.js';
 import type { SqlClient } from '@weaveintel/realm';
@@ -163,6 +170,40 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     },
     async resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
       return resolveRealmStates(ctx as unknown as SqlClient, 'postgres', family, tenantId, logicalKeys);
+    },
+    // Tenancy Realm (D14): the pinned historical payload per logical key, if the tenant pinned a version.
+    async resolveRealmPinnedVersions(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
+      return resolvePinnedVersions(ctx as unknown as SqlClient, 'postgres', family, tenantId, logicalKeys);
+    },
+
+    // ── Tenancy Realm Section D: write-path & governance ──
+    async promoteRealmFork(family: string, forkId: string) {
+      return promoteRealmForkToGlobal(ctx as unknown as SqlClient, 'postgres', family, forkId);
+    },
+    async proposeRealmFork(family: string, forkId: string, opts?: { proposedBy?: string | null; note?: string | null }) {
+      return proposeRealmFork(ctx as unknown as SqlClient, 'postgres', family, forkId, opts ?? {});
+    },
+    async listRealmProposals(opts?: { status?: ProposalStatus; family?: string }) {
+      return listRealmProposals(ctx as unknown as SqlClient, 'postgres', opts ?? {});
+    },
+    async approveRealmProposal(proposalId: string, opts?: { reviewer?: string | null; reviewNote?: string | null }) {
+      return approveRealmProposal(ctx as unknown as SqlClient, 'postgres', proposalId, opts ?? {});
+    },
+    async rejectRealmProposal(proposalId: string, opts?: { reviewer?: string | null; reviewNote?: string | null }) {
+      return rejectRealmProposal(ctx as unknown as SqlClient, 'postgres', proposalId, opts ?? {});
+    },
+    async deprecateRealmRecord(family: string, id: string, opts?: { note?: string | null; supersededById?: string | null }) {
+      return deprecateRealmRecord(ctx as unknown as SqlClient, 'postgres', family, id, opts ?? {});
+    },
+    async undeprecateRealmRecord(family: string, id: string) {
+      return undeprecateRealmRecord(ctx as unknown as SqlClient, 'postgres', family, id);
+    },
+    async checkRealmKeyCollision(family: string, logicalKey: string, tenantId: string | null) {
+      const realmCtx = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return checkVisibleKeyCollision(ctx as unknown as SqlClient, 'postgres', family, logicalKey, realmCtx);
+    },
+    async reparentTenant(tenantId: string, newParentTenantId: string | null) {
+      return reparentTenant(ctx as unknown as SqlClient, 'postgres', tenantId, newParentTenantId);
     },
 
     async realmContext(tenantId: string | null) {
@@ -562,6 +603,29 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
         `INSERT INTO prompt_fragments (id, key, name, description, category, content, variables, tags, version, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [f.id, f.key, f.name, f.description ?? null, f.category ?? null, f.content, f.variables ?? null, f.tags ?? null, f.version, f.enabled],
       );
+    },
+
+
+    // Tenancy Realm (D13): insert a fragment row with explicit realm columns (a tenant's fork).
+    async insertRealmPromptFragmentRow(f: Omit<PromptFragmentRow, 'created_at' | 'updated_at'>): Promise<void> {
+      await ctx.query(
+        `INSERT INTO prompt_fragments (id, key, name, description, category, content, variables, tags, version, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+        [
+          f.id, f.key, f.name, f.description ?? null, f.category ?? null, f.content, f.variables ?? null, f.tags ?? null, f.version, f.enabled,
+          f.realm ?? 'tenant', f.owner_tenant_id ?? null, f.logical_key ?? null, f.origin_id ?? null,
+          f.origin_hash ?? null, f.content_hash ?? '', f.track_mode ?? 'pin', f.share_mode ?? 'private',
+        ],
+      );
+    },
+
+    // Tenancy Realm (D13): nearest-owner-wins fragments for a tenant (canonical key restored on forks).
+    async resolveTenantEffectivePromptFragments(tenantId: string | null): Promise<PromptFragmentRow[]> {
+      const { rows } = await ctx.query('SELECT * FROM prompt_fragments', []);
+      const all = rows as unknown as PromptFragmentRow[];
+      if (!tenantId) return all.filter((f) => (f.realm ?? 'global') === 'global');
+      const realmCtx = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveFragments(all, tenantId, realmCtx);
     },
 
     async getPromptFragment(id: string): Promise<PromptFragmentRow | null> {

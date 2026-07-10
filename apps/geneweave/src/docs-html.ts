@@ -4374,6 +4374,52 @@ ${section('ten-share', 'Share down the org tree &amp; promote good ideas up', `
 
 ${callout('info', '🌳', 'Two engines, identical results.', 'All of this works byte-for-byte identically on SQLite (the community default) and Postgres — resolution lives in a portable adapter predicate + content hash, not in database-specific row-level-security. Content hashes are canonical + stable across both engines, so a fork\'s drift state and provenance are the same wherever you run.')}
 `)}
+
+${section('ten-govern', 'Governing the shared defaults — propose, pin, deprecate, reparent', `
+<p>Changing what <em>one</em> tenant sees is safe: a fork only ever affects its owner. Changing the <strong>global default</strong> changes what <em>every</em> tenant sees. So those actions are <strong>platform-admin only</strong>, and the good idea from one tenant reaches everyone through a review step rather than a direct write.</p>
+
+${callout('tip', '🗳️', 'Propose, then review — a tenant suggests, a platform admin decides.', 'A tenant admin who has improved their copy can <strong>propose</strong> it as the new global default. Nothing changes yet: the proposal lands in a queue. Only a <strong>platform admin</strong> can approve it (which performs the promote) or reject it. Re-proposing the same fork updates the open proposal instead of stacking duplicates, and if the promote fails the proposal stays <em>pending</em> rather than falsely reading as approved.')}
+
+${code('bash', `# A tenant admin proposes their fork become the shared default. Nothing changes yet.
+curl -X POST /api/admin/realm/proposals \\
+  -H 'content-type: application/json' -H 'x-csrf-token: ...' \\
+  -d '{ "family": "guardrails", "forkId": "FORK_ID", "note": "catches more PII" }'
+# → 201 { proposal: { status: "pending", tenant_id: "acme", ... } }
+
+# The review queue (platform admins see everyone; a tenant admin sees only its own).
+curl '/api/admin/realm/proposals?status=pending'
+
+# Platform admin decides. Approve = promote the fork into the global default.
+curl -X POST /api/admin/realm/proposals/ID/approve -d '{ "reviewNote": "nice catch" }'
+curl -X POST /api/admin/realm/proposals/ID/reject  -d '{ "reviewNote": "too narrow" }'`)}
+
+<p><strong>Pin a version — stay on what you tested, without forking.</strong> A tenant can pin a shared default to a specific published version: “keep giving me v3 of the support prompt even after v4 ships.” Runs then serve v3’s exact historical content, recovered from the append-only version log. Pinning is the no-fork alternative to freezing config; a tenant that <em>has</em> its own fork already opts out of upstream changes, so a fork wins over a pin.</p>
+
+${callout('tip', '📌', 'A stale pin can never take your assistant offline.', 'If a tenant pins a version that was never published — a typo, or a version rolled back — the pin is <strong>ignored</strong> and the tenant quietly gets the current default. A configuration mistake degrades to “you are on the latest,” never to “no prompt resolved.” The version that was actually served is stamped on the run.')}
+
+<p><strong>Deprecate a default — retire it without breaking anyone.</strong> Marking a global default deprecated does <em>not</em> withdraw it: every tenant already using it keeps resolving it exactly as before. What changes is that it can gain <strong>no new customisations</strong>, and it can point at its replacement, so operators are steered forward instead of discovering a broken assistant.</p>
+
+${code('bash', `# Retire a built-in and name its replacement. Existing users are unaffected.
+curl -X POST /api/admin/realm/prompts/GLOBAL_ID/deprecate \\
+  -d '{ "note": "superseded by the 2026 rewrite", "supersededById": "NEW_ID" }'
+# Someone trying to customize it now gets a 409 naming the replacement:
+# { "error": "this default is deprecated and can no longer be customized; customize NEW_ID instead" }
+curl -X POST /api/admin/realm/prompts/GLOBAL_ID/undeprecate   # back into service`)}
+
+${callout('tip', '🔑', 'Customize it — don’t create a twin.', 'If you can already <em>see</em> a record under some key (a global default, or a parent org’s shared copy), creating a <strong>second</strong> record under that same key is refused with a <code>409</code> that names the record you should customize instead. Otherwise one logical key would have two competing definitions and resolution would be ambiguous. An ancestor’s <em>private</em> copy does not block you — you genuinely cannot see it.')}
+
+<p><strong>Reparent a tenant — moving a team moves what it inherits.</strong> Tenants sit in an org tree, and config resolves down that tree. Moving a tenant under a new parent therefore silently changes every setting it <em>inherits</em> — its prompts, guardrails, routing weights, model capability scores. The move is cycle-safe (a node can never become its own ancestor), reports the entire affected subtree, and flushes the caches keyed by tenant so nothing stale is served.</p>
+
+${code('bash', `curl -X POST /api/admin/tenants/emea/reparent \\
+  -H 'content-type: application/json' -H 'x-csrf-token: ...' \\
+  -d '{ "newParentTenantId": "apac" }'      # null → make it a root tenant
+# → { ok: true,
+#     from: { parentTenantId: "acme", path: "/acme/emea/", depth: 1 },
+#     to:   { parentTenantId: "apac", path: "/acme/apac/emea/", depth: 2 },
+#     affectedTenantIds: ["emea", "uk"] }   # every node whose inherited config just moved`)}
+
+<p>All of this is uniform across the config surface: prompts, prompt fragments, skills, worker agents, guardrails, tool policies, model-routing and cost policies, and the prompt catalog each expose the same <code>customize</code> / <code>revert</code> / <code>propose</code> / <code>deprecate</code> shape.</p>
+`)}
 `;
 }
 
@@ -6103,7 +6149,7 @@ export function getDocsHTML(): string {
     { id: 'replay',       label: 'Replay',           icon: '⏮️', group: 'Operations',
       subs: ['replay-record','replay-replay'] },
     { id: 'tenancy',      label: 'Tenancy',          icon: '🏢', group: 'Operations',
-      subs: ['ten-context','ten-budget','ten-caps','ten-realm','ten-drift','ten-share'] },
+      subs: ['ten-context','ten-budget','ten-caps','ten-realm','ten-drift','ten-share','ten-govern'] },
     { id: 'compliance',   label: 'Compliance',       icon: '📋', group: 'Operations',
       subs: ['comp-setup','comp-consent','comp-gdpr'] },
     { id: 'durability',   label: 'Durability',       icon: '💾', group: 'Operations',
@@ -6814,6 +6860,7 @@ var SEARCH_IDX = [
   {s:'tenancy',     t:'Per-tenant config (Tenancy Realm)', k:'realm per-tenant fork customize prompt skill guardrail routing cost policy nearest owner wins provenance content forking multi-tenant override note action mode capability score routing weights org tree inherit hierarchy', sub:'ten-realm'},
   {s:'tenancy',     t:'Safe updates & drift',         k:'drift reconcile version log in_sync customized stale diverged state overlay disable pin per tenant update defaults', sub:'ten-drift'},
   {s:'tenancy',     t:'Share down & promote up',      k:'share subtree blast radius promote fork hierarchy tenant tree inherit shadowed', sub:'ten-share'},
+  {s:'tenancy',     t:'Governing shared defaults',    k:'propose review queue approve reject promote platform admin pin pinned version deprecate supersede reparent move tenant org tree key collision customize not create governance', sub:'ten-govern'},
   // Compliance
   {s:'compliance',  t:'Durable Compliance Stores',    k:'compliance legal hold consent residency retention deletion gdpr', sub:'comp-setup'},
   {s:'compliance',  t:'Consent Management',           k:'consent gdpr purpose grant revoke subject', sub:'comp-consent'},

@@ -16,6 +16,13 @@ import { applyM159RealmColumnsPromptCatalog } from './migrations/m159-realm-colu
 import { resolveTenantEffectiveNoteActionMode } from './note-action-realm.js';
 import { resolveTenantEffectiveTaskTypeOverrides } from './task-override-realm.js';
 import { resolveTenantEffectiveCapabilityScores } from './capability-score-realm.js';
+import { resolvePinnedVersions } from './realm-pinned-version.js';
+import { resolveTenantEffectivePromptFragments } from './prompt-fragment-realm.js';
+import {
+  promoteRealmForkToGlobal, proposeRealmFork, listRealmProposals, approveRealmProposal,
+  rejectRealmProposal, deprecateRealmRecord, undeprecateRealmRecord, checkVisibleKeyCollision,
+  reparentTenant, type ProposalStatus,
+} from './realm-governance.js';
 import { resolveTenantEffectiveRoutingPolicies } from './routing-policy-realm.js';
 import { resolveTenantEffectiveCostPolicies } from './cost-policy-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
@@ -1077,6 +1084,40 @@ export class SQLiteAdapter implements DatabaseAdapter {
   async resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
     return resolveRealmStates(sqliteSqlClient(this.d), 'sqlite', family, tenantId, logicalKeys);
   }
+  // Tenancy Realm (D14): the pinned historical payload per logical key, if the tenant pinned a version.
+  async resolveRealmPinnedVersions(family: string, tenantId: string | null, logicalKeys: readonly string[]) {
+    return resolvePinnedVersions(sqliteSqlClient(this.d), 'sqlite', family, tenantId, logicalKeys);
+  }
+
+  // ── Tenancy Realm Section D: write-path & governance ──
+  async promoteRealmFork(family: string, forkId: string) {
+    return promoteRealmForkToGlobal(sqliteSqlClient(this.d), 'sqlite', family, forkId);
+  }
+  async proposeRealmFork(family: string, forkId: string, opts?: { proposedBy?: string | null; note?: string | null }) {
+    return proposeRealmFork(sqliteSqlClient(this.d), 'sqlite', family, forkId, opts ?? {});
+  }
+  async listRealmProposals(opts?: { status?: ProposalStatus; family?: string }) {
+    return listRealmProposals(sqliteSqlClient(this.d), 'sqlite', opts ?? {});
+  }
+  async approveRealmProposal(proposalId: string, opts?: { reviewer?: string | null; reviewNote?: string | null }) {
+    return approveRealmProposal(sqliteSqlClient(this.d), 'sqlite', proposalId, opts ?? {});
+  }
+  async rejectRealmProposal(proposalId: string, opts?: { reviewer?: string | null; reviewNote?: string | null }) {
+    return rejectRealmProposal(sqliteSqlClient(this.d), 'sqlite', proposalId, opts ?? {});
+  }
+  async deprecateRealmRecord(family: string, id: string, opts?: { note?: string | null; supersededById?: string | null }) {
+    return deprecateRealmRecord(sqliteSqlClient(this.d), 'sqlite', family, id, opts ?? {});
+  }
+  async undeprecateRealmRecord(family: string, id: string) {
+    return undeprecateRealmRecord(sqliteSqlClient(this.d), 'sqlite', family, id);
+  }
+  async checkRealmKeyCollision(family: string, logicalKey: string, tenantId: string | null) {
+    const ctx = await this.realmContext(tenantId);
+    return checkVisibleKeyCollision(sqliteSqlClient(this.d), 'sqlite', family, logicalKey, ctx);
+  }
+  async reparentTenant(tenantId: string, newParentTenantId: string | null) {
+    return reparentTenant(sqliteSqlClient(this.d), 'sqlite', tenantId, newParentTenantId);
+  }
 
   async realmContext(tenantId: string | null) {
     return buildTenantContext(sqliteSqlClient(this.d), 'sqlite', tenantId);
@@ -1448,6 +1489,27 @@ export class SQLiteAdapter implements DatabaseAdapter {
     this.d.prepare(
       `INSERT INTO prompt_fragments (id, key, name, description, category, content, variables, tags, version, enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(f.id, f.key, f.name, f.description ?? null, f.category ?? null, f.content, f.variables ?? null, f.tags ?? null, f.version, f.enabled);
+  }
+
+
+  // Tenancy Realm (D13): insert a fragment row with explicit realm columns (a tenant's fork).
+  async insertRealmPromptFragmentRow(f: Omit<PromptFragmentRow, 'created_at' | 'updated_at'>): Promise<void> {
+    this.d.prepare(
+      `INSERT INTO prompt_fragments (id, key, name, description, category, content, variables, tags, version, enabled, realm, owner_tenant_id, logical_key, origin_id, origin_hash, content_hash, track_mode, share_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      f.id, f.key, f.name, f.description ?? null, f.category ?? null, f.content, f.variables ?? null, f.tags ?? null, f.version, f.enabled,
+      f.realm ?? 'tenant', f.owner_tenant_id ?? null, f.logical_key ?? null, f.origin_id ?? null,
+      f.origin_hash ?? null, f.content_hash ?? '', f.track_mode ?? 'pin', f.share_mode ?? 'private',
+    );
+  }
+
+  // Tenancy Realm (D13): nearest-owner-wins fragments for a tenant (canonical key restored on forks).
+  async resolveTenantEffectivePromptFragments(tenantId: string | null): Promise<PromptFragmentRow[]> {
+    const all = this.d.prepare('SELECT * FROM prompt_fragments').all() as PromptFragmentRow[];
+    if (!tenantId) return all.filter((f) => (f.realm ?? 'global') === 'global');
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectivePromptFragments(all, tenantId, ctx);
   }
 
   async getPromptFragment(id: string): Promise<PromptFragmentRow | null> {

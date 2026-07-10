@@ -2,6 +2,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { newUUIDv7, weaveContext } from '@weaveintel/core';
 import { emitCacheEvent } from '../../cache-invalidator.js';
+import { guardCustomizable, guardKeyCollision } from '../api/realm-guards.js';
+import { buildTenantPromptFragmentFork } from '../../prompt-fragment-realm.js';
 import {
   renderPromptRecord,
   resolvePromptRecordForExecution,
@@ -77,6 +79,9 @@ export function registerAdminPromptRoutes(
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
     if (!body['name'] || !body['template']) { json(res, 400, { error: 'name and template required' }); return; }
+    // D17: an explicit key that the caller can already see must be Customized, not duplicated.
+    // (Key omitted → a fresh uuid is used, which can never collide.)
+    if (!await guardKeyCollision(json, res, db, 'prompts', String(body['key'] ?? ''), auth)) return;
     const validatedDescription = requireDetailedDescription(body['description'], 'prompt', res);
     if (!validatedDescription) return;
     const id = newUUIDv7();
@@ -159,6 +164,8 @@ export function registerAdminPromptRoutes(
     const global = await db.getPrompt(params['id']!);
     if (!global) { json(res, 404, { error: 'Prompt not found' }); return; }
     if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global prompt, not an existing tenant copy' }); return; }
+    // D15: a deprecated global default may not gain new forks (existing forks keep working).
+    if (!guardCustomizable(json, res, global)) return;
     const raw = await readBody(req);
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
@@ -236,8 +243,12 @@ export function registerAdminPromptRoutes(
   }, { auth: true, csrf: true });
 
   // Promote a tenant fork to the shared global default (ProposeToRealm approve).
+  // PLATFORM ADMIN ONLY (Section D): this overwrites the default that EVERY tenant resolves. Before
+  // this gate, any authenticated admin — including a tenant_admin — could rewrite the global for the
+  // whole fleet. Tenant admins now go through POST /api/admin/realm/proposals, which queues for review.
   router.post('/api/admin/prompts/:id/promote', async (_req, res, params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    if (auth.persona !== 'platform_admin') { json(res, 403, { error: 'Platform admin required' }); return; }
     const result = await db.promotePromptToGlobal(params['id']!);
     if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason ?? 'cannot promote' }); return; }
     await emitCacheEvent('prompt_update', { promptId: params['id'] });
@@ -421,6 +432,65 @@ export function registerAdminPromptRoutes(
     json(res, 200, { fragment });
   }, { auth: true, csrf: true });
 
+  // ── Admin: Tenancy Realm (D13) — per-tenant customization of prompt FRAGMENTS ──────────────
+  // Fragments had realm columns since m151 but no fork stack; they were the one realm-enabled family a
+  // tenant could not customize. A forked fragment changes every prompt that includes it via {{>key}}.
+
+  // Provenance: who does this tenant actually get for this fragment, and where did it come from?
+  router.get('/api/admin/prompt-fragments/:id/realm', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const base = await db.getPromptFragment(params['id']!);
+    if (!base) { json(res, 404, { error: 'Fragment not found' }); return; }
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    const logicalKey = base.logical_key ?? base.key;
+    const effective = tenantId
+      ? (await db.resolveTenantEffectivePromptFragments(tenantId)).find((f) => (f.logical_key ?? f.key) === logicalKey) ?? base
+      : base;
+    const kind = effective.realm === 'tenant' ? (effective.owner_tenant_id === tenantId ? 'own_override' : 'inherited') : 'global';
+    json(res, 200, { effective, provenance: { kind }, tenantId });
+  }, { auth: true });
+
+  // Fork: give a tenant its own copy of a global fragment.
+  router.post('/api/admin/prompt-fragments/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getPromptFragment(params['id']!);
+    if (!global) { json(res, 404, { error: 'Fragment not found' }); return; }
+    if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global fragment, not an existing tenant copy' }); return; }
+    // D15: a deprecated global default may not gain new forks (existing forks keep working).
+    if (!guardCustomizable(json, res, global)) return;
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(await readBody(req)); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const tenantId = body['tenantId'];
+    if (typeof tenantId !== 'string' || !tenantId.trim()) { json(res, 400, { error: 'tenantId required' }); return; }
+
+    const overrides: Record<string, unknown> = {};
+    for (const k of ['name', 'description', 'category', 'content', 'variables', 'share_mode'] as const) {
+      if (body[k] !== undefined) overrides[k] = body[k];
+    }
+    const logicalKey = global.logical_key ?? global.key;
+    const existing = (await db.listPromptFragments()).find((f) => f.realm === 'tenant' && f.owner_tenant_id === tenantId && (f.logical_key ?? f.key) === logicalKey);
+    if (existing) await db.deletePromptFragment(existing.id);
+    const fork = buildTenantPromptFragmentFork(global, tenantId, overrides as Parameters<typeof buildTenantPromptFragmentFork>[2]);
+    await db.insertRealmPromptFragmentRow(fork);
+    await emitCacheEvent('prompt_update', { fragmentId: fork.id });
+    json(res, 201, { fork: await db.getPromptFragment(fork.id), replacedExisting: Boolean(existing) });
+  }, { auth: true, csrf: true });
+
+  // Revert: drop a tenant's fragment fork so it falls back to the global built-in.
+  router.del('/api/admin/prompt-fragments/:id/customize', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const global = await db.getPromptFragment(params['id']!);
+    if (!global) { json(res, 404, { error: 'Fragment not found' }); return; }
+    const tenantId = new URL(req.url ?? '', 'http://localhost').searchParams.get('tenantId');
+    if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    const logicalKey = global.logical_key ?? global.key;
+    const fork = (await db.listPromptFragments()).find((f) => f.realm === 'tenant' && f.owner_tenant_id === tenantId && (f.logical_key ?? f.key) === logicalKey);
+    if (!fork) { json(res, 404, { error: 'No fork to revert for this tenant' }); return; }
+    await db.deletePromptFragment(fork.id);
+    await emitCacheEvent('prompt_update', { fragmentId: fork.id });
+    json(res, 200, { ok: true, reverted: fork.id });
+  }, { auth: true, csrf: true });
+
   router.del('/api/admin/prompt-fragments/:id', async (_req, res, params, auth) => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
     await db.deletePromptFragment(params['id']!);
@@ -598,6 +668,8 @@ export function registerAdminPromptRoutes(
       const global = await cfg.getById(params['id']!);
       if (!global) { json(res, 404, { error: `${cfg.singular} not found` }); return; }
       if (global.realm === 'tenant') { json(res, 400, { error: `Can only customize a global ${cfg.singular}, not an existing tenant copy` }); return; }
+      // D15: a deprecated global default may not gain new forks (existing forks keep working).
+      if (!guardCustomizable(json, res, global)) return;
       const raw = await readBody(req);
       let body: Record<string, unknown>;
       try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }

@@ -3,6 +3,7 @@ import type { ConditionNode, ExecutionContext, Guardrail, GuardrailRevisionStore
 import type { DatabaseAdapter } from '../../db.js';
 import type { GuardrailRow } from '../../db-types.js';
 import type { RouterLike, AdminHelpers } from './types.js';
+import { guardCustomizable, guardKeyCollision } from './realm-guards.js';
 import { recordGuardrailChange } from '../../guardrail-revision-store.js';
 import { buildTenantGuardrailFork } from '../../guardrail-realm.js';
 
@@ -126,6 +127,8 @@ export function registerGuardrailRoutes(
     const global = await db.getGuardrail(params['id']!);
     if (!global) { json(res, 404, { error: 'Guardrail not found' }); return; }
     if (global.realm === 'tenant') { json(res, 400, { error: 'Can only customize a global guardrail, not an existing tenant copy' }); return; }
+    // D15: a deprecated global default may not gain new forks (existing forks keep working).
+    if (!guardCustomizable(json, res, global)) return;
     const raw = await readBody(req);
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
@@ -175,6 +178,8 @@ export function registerGuardrailRoutes(
     let body: Record<string, unknown>;
     try { body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
     if (!body['name'] || !body['type']) { json(res, 400, { error: 'name and type required' }); return; }
+    // D17: if the caller can already SEE this logical key, they must Customize it, not create a twin.
+    if (!await guardKeyCollision(json, res, db, 'guardrails', String(body['name']), auth)) return;
     const id = 'guard-' + newUUIDv7().slice(-8);
     // Resolve trigger_conditions: preset takes priority, then explicit JSON, then null.
     let triggerConditions: string | null = null;

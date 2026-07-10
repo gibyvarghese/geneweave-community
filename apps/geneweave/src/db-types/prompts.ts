@@ -72,6 +72,15 @@ export interface PromptFragmentRow {
   tags: string | null;            // JSON: string[]
   version: string;
   enabled: number;
+  // ── Tenancy Realm (m151) — present on every row via SELECT *; global originals have realm='global' ──
+  realm?: string;                 // 'global' | 'tenant'
+  owner_tenant_id?: string | null;
+  logical_key?: string | null;    // = the fragment's canonical key; shared by a global + its tenant forks
+  origin_id?: string | null;
+  origin_hash?: string | null;
+  content_hash?: string;
+  track_mode?: string;
+  share_mode?: string;
   created_at: string;
   updated_at: string;
 }

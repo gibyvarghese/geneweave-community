@@ -32,6 +32,12 @@ export interface IPromptStore {
   clearRealmState(family: string, logicalKey: string, tenantId: string): Promise<void>;
   listRealmStates(family: string, tenantId: string): Promise<import('@weaveintel/realm').RealmStateRecord[]>;
   resolveRealmStates(family: string, tenantId: string | null, logicalKeys: readonly string[]): Promise<Map<string, import('@weaveintel/realm').ResolvedState>>;
+  /**
+   * Tenancy Realm (D14): for each logical key this tenant has pinned to a PUBLISHED version, the
+   * historical payload to serve instead of the current global default. Keys with no pin — or a pin to a
+   * version that was never published — are absent. Null tenant → empty (globals are never pinned).
+   */
+  resolveRealmPinnedVersions(family: string, tenantId: string | null, logicalKeys: readonly string[]): Promise<Map<string, import('../realm-pinned-version.js').PinnedContent>>;
   // ── Tenancy Realm Phase 4: real tenant-tree resolution + share down the tree + promote a fork up ──
   /** The tenant's real lineage (root → self) so parent-shared forks + parent overlays resolve at depth. */
   realmContext(tenantId: string | null): Promise<import('@weaveintel/realm').RealmContext>;
@@ -41,6 +47,26 @@ export interface IPromptStore {
   setPromptShareMode(promptId: string, shareMode: import('@weaveintel/realm').ShareMode): Promise<{ ok: boolean; reason?: string }>;
   /** Promote a tenant fork to the shared global default (ProposeToRealm approve). */
   promotePromptToGlobal(promptId: string): Promise<{ ok: boolean; reason?: string; logicalKey?: string }>;
+
+  // ── Tenancy Realm Section D: write-path & governance (family-agnostic over the realm registry) ──
+  /** Promote a fork in ANY realm family onto its global default, re-baselining + recording a version. */
+  promoteRealmFork(family: string, forkId: string): Promise<import('../realm-governance.js').PromoteResult>;
+  /** D12: a tenant admin proposes their fork become the global default. Lands `pending`; nothing changes yet. */
+  proposeRealmFork(family: string, forkId: string, opts?: { proposedBy?: string | null; note?: string | null }): Promise<import('../realm-governance.js').ProposeResult>;
+  /** D12: the review queue (default `pending`), newest first. */
+  listRealmProposals(opts?: { status?: import('../realm-governance.js').ProposalStatus; family?: string }): Promise<import('../realm-governance.js').RealmProposalRow[]>;
+  /** D12: platform-admin approval — promotes the fork, then closes the proposal. */
+  approveRealmProposal(proposalId: string, opts?: { reviewer?: string | null; reviewNote?: string | null }): Promise<import('../realm-governance.js').ReviewResult>;
+  /** D12: platform-admin rejection — closes the proposal, changes nothing. */
+  rejectRealmProposal(proposalId: string, opts?: { reviewer?: string | null; reviewNote?: string | null }): Promise<import('../realm-governance.js').ReviewResult>;
+  /** D15: retire a global default — it keeps resolving, but can no longer be freshly customized. */
+  deprecateRealmRecord(family: string, id: string, opts?: { note?: string | null; supersededById?: string | null }): Promise<import('../realm-governance.js').DeprecateResult>;
+  /** D15: bring a deprecated global default back into service. */
+  undeprecateRealmRecord(family: string, id: string): Promise<import('../realm-governance.js').DeprecateResult>;
+  /** D17: does this tenant already SEE a record under `logicalKey`? Then it may only Customize it. */
+  checkRealmKeyCollision(family: string, logicalKey: string, tenantId: string | null): Promise<import('../realm-governance.js').KeyCollision>;
+  /** D16: move a tenant (and its subtree) under a new parent; returns the before/after + affected subtree. */
+  reparentTenant(tenantId: string, newParentTenantId: string | null): Promise<import('../realm-governance.js').ReparentDiff>;
 
   // Prompt Versions
   createPromptVersion(v: Omit<PromptVersionRow, 'created_at' | 'updated_at'>): Promise<void>;
@@ -102,6 +128,10 @@ export interface IPromptStore {
   listPromptFragments(): Promise<PromptFragmentRow[]>;
   updatePromptFragment(id: string, fields: Partial<Omit<PromptFragmentRow, 'id' | 'created_at' | 'updated_at'>>): Promise<void>;
   deletePromptFragment(id: string): Promise<void>;
+  /** Tenancy Realm (D13): insert a fragment row carrying explicit realm columns (a tenant's fork). */
+  insertRealmPromptFragmentRow(f: Omit<PromptFragmentRow, 'created_at' | 'updated_at'>): Promise<void>;
+  /** Tenancy Realm (D13): the fragments a tenant effectively sees, nearest-owner-wins, canonical key restored. */
+  resolveTenantEffectivePromptFragments(tenantId: string | null): Promise<PromptFragmentRow[]>;
 
   // Prompt Contracts
   createPromptContract(c: Omit<PromptContractRow, 'created_at' | 'updated_at'>): Promise<void>;

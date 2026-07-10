@@ -36,6 +36,14 @@ function sortDeep(v: unknown): unknown {
   return v;
 }
 
+/**
+ * Semantic (content) fields per table — identity (`key`) and `enabled` are deliberately excluded.
+ * Exported so the governance code (promote / drift) hashes EXACTLY what this backfill hashed. Note that
+ * fragments carry `content`, not `template`, and have no model/execution/framework columns.
+ */
+export const PROMPT_SEMANTIC_COLS = ['name', 'description', 'category', 'template', 'variables', 'model_compatibility', 'execution_defaults', 'framework'] as const;
+export const FRAGMENT_SEMANTIC_COLS = ['name', 'description', 'category', 'content', 'variables'] as const;
+
 const REALM_COLUMNS: Array<[string, string]> = [
   ['realm', "TEXT NOT NULL DEFAULT 'global'"],
   ['owner_tenant_id', 'TEXT'],
@@ -59,8 +67,8 @@ export function applyM151RealmColumns(db: BetterSqlite3.Database): void {
   safeExec(db, `UPDATE prompt_fragments SET logical_key = COALESCE(NULLIF(key, ''), id) WHERE logical_key IS NULL OR logical_key = ''`);
 
   // Compute content hashes in JS so existing rows are proper global originals (only for empty ones).
-  hashRows(db, 'prompts', ['name', 'description', 'category', 'template', 'variables', 'model_compatibility', 'execution_defaults', 'framework']);
-  hashRows(db, 'prompt_fragments', ['name', 'description', 'category', 'content', 'variables']);
+  hashRows(db, 'prompts', [...PROMPT_SEMANTIC_COLS]);
+  hashRows(db, 'prompt_fragments', [...FRAGMENT_SEMANTIC_COLS]);
 
   // One copy per (logical_key, owner). COALESCE folds the global NULL owner to '' so it's unique too.
   safeExec(db, `CREATE UNIQUE INDEX IF NOT EXISTS ux_prompts_logical_owner ON prompts(logical_key, COALESCE(owner_tenant_id, ''))`);
