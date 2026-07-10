@@ -31,6 +31,9 @@
  * pass-through; bigint epoch columns read back as numbers; every value is a bound parameter.
  */
 import type { PgCtx } from '../db-postgres-ctx.js';
+import { buildTenantContext } from '../realm-hierarchy.js';
+import { resolveTenantEffectiveNoteActionMode } from '../note-action-realm.js';
+import type { SqlClient } from '@weaveintel/realm';
 import type { DatabaseAdapter } from '../db-types/adapter.js';
 import type { TemporalReminderRow } from '../db-types/core.js';
 import type {
@@ -1184,14 +1187,16 @@ export function pgMeStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       await ctx.query(`UPDATE weavenotes_settings SET ${sets.join(', ')}, updated_at = ${ctx.now} WHERE id = 'global'`, vals);
     },
 
-    // weaveNotes — per-tenant routing mode for a note AI action
+    // weaveNotes — per-tenant routing mode for a note AI action. Tenancy Realm (C10): resolved
+    // nearest-owner-wins down the tenant lineage (own row → nearest ancestor org's row → global
+    // default (tenant_id='') → 'direct') via the shared realm resolver, so a parent org can set a
+    // mode once and child tenants inherit it while a child can still override with its own row.
     async resolveNoteActionMode(tenantId: string | null, actionKey: string): Promise<'direct' | 'agent' | 'supervisor'> {
-      const pick = async (tid: string): Promise<string | undefined> => {
-        const { rows } = await ctx.query('SELECT mode FROM note_action_modes WHERE tenant_id = $1 AND action_key = $2', [tid, actionKey]);
-        return (rows[0] as { mode?: string } | undefined)?.mode;
-      };
-      const mode = (tenantId ? await pick(tenantId) : undefined) ?? (await pick('')) ?? 'direct';
-      return mode === 'agent' || mode === 'supervisor' ? mode : 'direct';
+      const { rows } = await ctx.query('SELECT * FROM note_action_modes WHERE action_key = $1', [actionKey]);
+      const all = rows as unknown as NoteActionModeRow[];
+      if (all.length === 0) return 'direct';
+      const context = tenantId ? await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId) : undefined;
+      return resolveTenantEffectiveNoteActionMode(all, actionKey, tenantId, context);
     },
 
     async getNoteImageLanguage(userId: string): Promise<string> {

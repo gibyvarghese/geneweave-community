@@ -51,7 +51,9 @@ export function registerRoutingSimulatorRoutes(
     try { weights = JSON.parse(taskType.default_weights); } catch { weights = { cost: 0.25, speed: 0.25, quality: 0.25, capability: 0.25 }; }
 
     if (tenantId) {
-      const overrides = await db.listTaskTypeTenantOverrides({ tenantId, taskKey });
+      // Tenancy Realm (C9): resolve the tenant-EFFECTIVE override nearest-owner-wins down the lineage
+      // (the tenant's own row, else the nearest ancestor org's row) instead of only the tenant's own.
+      const overrides = await db.resolveTenantEffectiveTaskTypeOverrides(tenantId, taskKey);
       const ov = overrides[0];
       if (ov?.weights) {
         try { weights = JSON.parse(ov.weights); weightSource = 'tenant_override'; } catch { /* keep default */ }
@@ -68,13 +70,12 @@ export function registerRoutingSimulatorRoutes(
       weightSource = 'explicit';
     }
 
-    // Load capability scores for this task. Fall back to global (NULL tenant)
-    // when no tenant-scoped row exists for a given (model, provider).
-    const tenantScores = tenantId ? await db.listCapabilityScores({ taskKey, tenantId }) : [];
-    const globalScores = await db.listCapabilityScores({ taskKey, tenantId: null });
-    const merged = new Map<string, typeof globalScores[number]>();
-    for (const s of globalScores) merged.set(`${s.provider}::${s.model_id}`, s);
-    for (const s of tenantScores) merged.set(`${s.provider}::${s.model_id}`, s);
+    // Load capability scores for this task. Tenancy Realm (C11): resolve nearest-owner-wins down the
+    // lineage (own row → nearest ancestor org's row → global default per (provider, model) cell),
+    // matching what the live routing path now sees. Null tenant → globals only.
+    const effectiveScores = await db.resolveTenantEffectiveCapabilityScores(tenantId, taskKey);
+    const merged = new Map<string, typeof effectiveScores[number]>();
+    for (const s of effectiveScores) merged.set(`${s.provider}::${s.model_id}`, s);
 
     const requireTools = body['requireTools'] === true;
     const requireVision = body['requireVision'] === true;

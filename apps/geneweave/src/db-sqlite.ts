@@ -13,6 +13,9 @@ import { resolveTenantEffectiveToolPolicies } from './tool-policy-realm.js';
 import { resolveTenantEffectivePromptStrategies, resolveTenantEffectivePromptContracts, resolveTenantEffectivePromptFrameworks } from './prompt-catalog-realm.js';
 import { applyM158RealmColumnsRoutingCost } from './migrations/m158-realm-columns-routing-cost.js';
 import { applyM159RealmColumnsPromptCatalog } from './migrations/m159-realm-columns-prompt-catalog.js';
+import { resolveTenantEffectiveNoteActionMode } from './note-action-realm.js';
+import { resolveTenantEffectiveTaskTypeOverrides } from './task-override-realm.js';
+import { resolveTenantEffectiveCapabilityScores } from './capability-score-realm.js';
 import { resolveTenantEffectiveRoutingPolicies } from './routing-policy-realm.js';
 import { resolveTenantEffectiveCostPolicies } from './cost-policy-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
@@ -1810,6 +1813,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return this.d.prepare(sql).all(...vals) as ModelCapabilityScoreRow[];
   }
 
+  // Tenancy Realm (C11): tenant-effective capability scores, resolved per (provider, model, task) cell
+  // nearest-owner-wins down the lineage. resolveEffective filters the full table to visible rows.
+  async resolveTenantEffectiveCapabilityScores(tenantId: string | null, taskKey?: string): Promise<ModelCapabilityScoreRow[]> {
+    const rows = (taskKey
+      ? this.d.prepare('SELECT * FROM model_capability_scores WHERE task_key = ? ORDER BY task_key, provider, model_id').all(taskKey)
+      : this.d.prepare('SELECT * FROM model_capability_scores ORDER BY task_key, provider, model_id').all()) as ModelCapabilityScoreRow[];
+    if (!tenantId) return rows.filter((r) => r.tenant_id === null || r.tenant_id === '');
+    if (rows.length === 0) return [];
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectiveCapabilityScores(rows, tenantId, ctx);
+  }
+
   async listProviderToolAdapters(): Promise<ProviderToolAdapterRow[]> {
     return this.d.prepare('SELECT * FROM provider_tool_adapters ORDER BY provider ASC').all() as ProviderToolAdapterRow[];
   }
@@ -2214,6 +2229,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
     if (opts?.taskKey) { where.push('task_key = ?'); vals.push(opts.taskKey); }
     const sql = `SELECT * FROM task_type_tenant_overrides${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY tenant_id, task_key`;
     return this.d.prepare(sql).all(...vals) as TaskTypeTenantOverrideRow[];
+  }
+
+  // Tenancy Realm (C9): tenant-effective task-type overrides, nearest-owner-wins down the lineage.
+  async resolveTenantEffectiveTaskTypeOverrides(tenantId: string | null, taskKey?: string): Promise<TaskTypeTenantOverrideRow[]> {
+    if (!tenantId) return [];
+    const all = this.d.prepare('SELECT * FROM task_type_tenant_overrides').all() as TaskTypeTenantOverrideRow[];
+    if (all.length === 0) return [];
+    const ctx = await this.realmContext(tenantId);
+    return resolveTenantEffectiveTaskTypeOverrides(all, tenantId, ctx, taskKey);
   }
 
   async getTaskTypeTenantOverride(id: string): Promise<TaskTypeTenantOverrideRow | null> {
@@ -9946,13 +9970,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const set = keys.map((k) => `${k} = @${k}`).join(', ');
     this.d.prepare(`UPDATE weavenotes_settings SET ${set}, updated_at = datetime('now') WHERE id = 'global'`).run(fields as Record<string, unknown>);
   }
-  // weaveNotes — per-tenant routing mode for a note AI action. Resolution: tenant row → global ('')
-  // row → 'direct'. So a tenant override wins, otherwise the global default, otherwise the safe fast path.
+  // weaveNotes — per-tenant routing mode for a note AI action. Tenancy Realm (C10): resolved
+  // nearest-owner-wins down the tenant lineage (the tenant's own row → nearest ancestor org's row →
+  // the global default (tenant_id='') → 'direct'), via the shared realm resolver — so a parent org can
+  // set a mode once and child tenants inherit it, while a child can still override with its own row.
   async resolveNoteActionMode(tenantId: string | null, actionKey: string): Promise<'direct' | 'agent' | 'supervisor'> {
-    const pick = (tid: string): string | undefined =>
-      (this.d.prepare('SELECT mode FROM note_action_modes WHERE tenant_id = ? AND action_key = ?').get(tid, actionKey) as { mode?: string } | undefined)?.mode;
-    const mode = (tenantId ? pick(tenantId) : undefined) ?? pick('') ?? 'direct';
-    return mode === 'agent' || mode === 'supervisor' ? mode : 'direct';
+    const rows = this.d.prepare('SELECT * FROM note_action_modes WHERE action_key = ?').all(actionKey) as import('./db-types/adapter-me.js').NoteActionModeRow[];
+    if (rows.length === 0) return 'direct';
+    const ctx = tenantId ? await this.realmContext(tenantId) : undefined;
+    return resolveTenantEffectiveNoteActionMode(rows, actionKey, tenantId, ctx);
   }
   async getNoteImageLanguage(userId: string): Promise<string> {
     const row = this.d.prepare('SELECT notes_image_language FROM user_preferences WHERE user_id = ?').get(userId) as { notes_image_language?: string } | undefined;

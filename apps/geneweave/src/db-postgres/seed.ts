@@ -2322,6 +2322,26 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
         await ctx.query("UPDATE model_pricing SET output_modality = 'text' WHERE output_modality IS NULL OR output_modality = ''", []);
       }
   
+      // ─── weaveNotes — default note-action routing modes (global) ───────
+      // Parity with the SQLite m117 migration seed: the 5 global (tenant_id='')
+      // note_action_modes rows the realm resolver falls back to. Without these,
+      // Postgres resolveNoteActionMode returned 'direct' for every action while
+      // SQLite returned the supervised defaults. Idempotent via ON CONFLICT.
+      for (const m of [
+        { id: 'noteact00-0000-4000-8000-000000000001', action: 'diagram', mode: 'supervisor' },
+        { id: 'noteact00-0000-4000-8000-000000000002', action: 'ink', mode: 'supervisor' },
+        { id: 'noteact00-0000-4000-8000-000000000003', action: 'visual', mode: 'supervisor' },
+        { id: 'noteact00-0000-4000-8000-000000000004', action: 'restructure', mode: 'supervisor' },
+        { id: 'noteact00-0000-4000-8000-000000000005', action: 'illustration', mode: 'direct' },
+      ]) {
+        await ctx.query(
+          `INSERT INTO note_action_modes (id, tenant_id, action_key, mode, updated_at)
+             VALUES ($1, '', $2, $3, ${ctx.now})
+           ON CONFLICT ("tenant_id", "action_key") DO NOTHING`,
+          [m.id, m.action, m.mode],
+        );
+      }
+
       // ─── Cost Governor — default cost policies (4 tiers) ───────
       // Phase 2 ships the table; Phase 3 ships the seed data so operators
       // and runtime resolvers always have at least one binding target per

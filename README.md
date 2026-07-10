@@ -164,6 +164,13 @@ curl -X DELETE '/api/admin/guardrails/GLOBAL_ID/customize?tenantId=acme'   # rev
   shared built-in for one tenant without copying it.
 - **Org tree:** a parent org can customise once and have child tenants inherit it; a great tenant tweak can
   be **promoted** up to become the new global default for everyone.
+- **More settings inherit down the org tree too:** three per-tenant knobs that used to be a flat "this
+  tenant's row, else the global one" now inherit the same nearest-owner-wins way — a parent org sets them
+  once and children inherit unless they set their own: **model-routing weight overrides** (cost vs. speed
+  vs. quality per task), **model capability scores** (a tenant's tuned quality score for a model + task),
+  and **weaveNotes AI-action modes** (whether "turn this into a diagram", freehand ink, restructure, etc.
+  runs directly, hands off to an agent, or goes through a supervisor). Set nothing → everyone keeps the
+  shared default, exactly as before.
 - **Provenance:** every run records which tenant's fork produced its system prompt, so "which config
   produced this output, for this tenant?" is answerable.
 

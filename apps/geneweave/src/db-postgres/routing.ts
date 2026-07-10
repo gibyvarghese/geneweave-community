@@ -18,6 +18,8 @@ import type { SqlClient } from '@weaveintel/realm';
 import { buildTenantContext } from '../realm-hierarchy.js';
 import { resolveTenantEffectiveGuardrails as resolveEffectiveGuardrails } from '../guardrail-realm.js';
 import { resolveTenantEffectiveRoutingPolicies as resolveEffectiveRouting } from '../routing-policy-realm.js';
+import { resolveTenantEffectiveTaskTypeOverrides as resolveEffectiveTaskOverrides } from '../task-override-realm.js';
+import { resolveTenantEffectiveCapabilityScores as resolveEffectiveCapabilityScores } from '../capability-score-realm.js';
 import type {
   GuardrailRow,
   GuardrailRevisionRow,
@@ -243,6 +245,19 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return rows as unknown as ModelCapabilityScoreRow[];
     },
 
+    // Tenancy Realm (C11): tenant-effective capability scores, per (provider, model, task) cell
+    // nearest-owner-wins down the lineage. resolveEffective filters the table to visible rows.
+    async resolveTenantEffectiveCapabilityScores(tenantId: string | null, taskKey?: string): Promise<ModelCapabilityScoreRow[]> {
+      const { rows } = taskKey
+        ? await ctx.query('SELECT * FROM model_capability_scores WHERE task_key = $1', [taskKey])
+        : await ctx.query('SELECT * FROM model_capability_scores', []);
+      const all = rows as unknown as ModelCapabilityScoreRow[];
+      if (!tenantId) return all.filter((r) => r.tenant_id === null || r.tenant_id === '');
+      if (all.length === 0) return [];
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveCapabilityScores(all, tenantId, context);
+    },
+
     async getCapabilityScore(id: string): Promise<ModelCapabilityScoreRow | null> {
       const { rows } = await ctx.query('SELECT * FROM model_capability_scores WHERE id = $1', [id]);
       return (rows[0] as ModelCapabilityScoreRow | undefined) ?? null;
@@ -367,6 +382,16 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const sql = `SELECT * FROM task_type_tenant_overrides${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY tenant_id COLLATE "C", task_key COLLATE "C"`;
       const { rows } = await ctx.query(sql, vals);
       return rows as unknown as TaskTypeTenantOverrideRow[];
+    },
+
+    // Tenancy Realm (C9): tenant-effective task-type overrides, nearest-owner-wins down the lineage.
+    async resolveTenantEffectiveTaskTypeOverrides(tenantId: string | null, taskKey?: string): Promise<TaskTypeTenantOverrideRow[]> {
+      if (!tenantId) return [];
+      const { rows } = await ctx.query('SELECT * FROM task_type_tenant_overrides', []);
+      const all = rows as unknown as TaskTypeTenantOverrideRow[];
+      if (all.length === 0) return [];
+      const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
+      return resolveEffectiveTaskOverrides(all, tenantId, context, taskKey);
     },
 
     async getTaskTypeTenantOverride(id: string): Promise<TaskTypeTenantOverrideRow | null> {
