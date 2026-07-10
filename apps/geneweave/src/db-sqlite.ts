@@ -18,6 +18,7 @@ import { resolveTenantEffectiveTaskTypeOverrides } from './task-override-realm.j
 import { resolveTenantEffectiveCapabilityScores } from './capability-score-realm.js';
 import { resolvePinnedVersions } from './realm-pinned-version.js';
 import { resolveTenantEffectivePromptFragments } from './prompt-fragment-realm.js';
+import { loadThreeWayDiff, applyRealmMerge, realmDriftReport } from './realm-diff.js';
 import {
   promoteRealmForkToGlobal, proposeRealmFork, listRealmProposals, approveRealmProposal,
   rejectRealmProposal, deprecateRealmRecord, undeprecateRealmRecord, checkVisibleKeyCollision,
@@ -1118,6 +1119,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
   async reparentTenant(tenantId: string, newParentTenantId: string | null) {
     return reparentTenant(sqliteSqlClient(this.d), 'sqlite', tenantId, newParentTenantId);
   }
+
+  // ── Tenancy Realm Section E: drift diff / merge workbench ──
+  async realmDiff(family: string, recordId: string) {
+    return loadThreeWayDiff(sqliteSqlClient(this.d), 'sqlite', family, recordId);
+  }
+  async realmMerge(family: string, recordId: string, resolved: Record<string, unknown>) {
+    return applyRealmMerge(sqliteSqlClient(this.d), 'sqlite', family, recordId, resolved);
+  }
+  async realmDriftReport(family: string, opts?: { tenantId?: string | null }) {
+    return realmDriftReport(sqliteSqlClient(this.d), 'sqlite', family, opts ?? {});
+  }
+
 
   async realmContext(tenantId: string | null) {
     return buildTenantContext(sqliteSqlClient(this.d), 'sqlite', tenantId);
@@ -5890,7 +5903,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }
 
     // Guardrails
-    if (cnt('guardrails') === 0) {
+    // Base guardrails — upserted PER ID on every boot (Tenancy Realm Section E). The old
+    // `cnt('guardrails') === 0` fresh-database gate was brittle: migrations m30/m31/m71 seed guardrails
+    // BEFORE this runs, so on any such database the table was non-empty and the base set was never
+    // installed at all. Idempotent per id, matching the injection/extended sets below. A tenant that
+    // wants a leaner posture disables rows via the realm state overlay, not by them being absent.
     const guardrails: Omit<GuardrailRow, 'created_at' | 'updated_at'>[] = [
       {
         id: '0370fa22-5fc8-49a4-bd4c-3e39863da61d', name: 'PII Redaction', description: 'Redact personal identifiable information before sending to LLM',
@@ -5957,8 +5974,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
         }), priority: 94, enabled: 1,
       },
     ];
-    for (const g of guardrails) await this.createGuardrail(g);
-    }
+    for (const g of guardrails) { if (!(await this.getGuardrail(g.id))) await this.createGuardrail(g); }
 
     // Ensure prompt-injection guardrails exist for existing databases
     const injectionGuardrails: Omit<GuardrailRow, 'created_at' | 'updated_at'>[] = [

@@ -4364,6 +4364,58 @@ ${section('ten-drift', 'Safe updates &amp; drift — ship new defaults without c
 ${callout('tip', '🎚️', 'Turn a built-in off (or reprioritise it) for one tenant — without copying it.', 'Sometimes a tenant doesn\'t want a <em>different</em> version of a skill, they just want it <strong>disabled</strong> or ranked lower — for themselves only. The <strong>state overlay</strong> is a tiny per-(tenant, item) sidecar that flips <code>enabled</code>/<code>priority</code>/<code>pinnedVersion</code> without forking the whole row. Empty overlay = today\'s behaviour (everyone shares the default). It\'s the feature-flag / Kustomize-overlay pattern for shared built-ins.')}
 `)}
 
+${section('ten-merge', 'Resolving a diverged record — the diff / merge workbench', `
+<p>Three of the four drift states resolve themselves. <code>in_sync</code> needs nothing; a <code>stale</code> record can simply adopt the new default; a <code>customized</code> one keeps its edit. Only <strong>diverged</strong> — you changed it AND upstream changed it — genuinely needs a person. The workbench turns that into a real <strong>three-way merge</strong>, exactly like git, applied to configuration.</p>
+
+<p>Three versions of the record are lined up side by side:</p>
+<ul>
+<li><strong>BASE</strong> — the content you originally copied, recovered from the version log.</li>
+<li><strong>LOCAL</strong> — what you have now.</li>
+<li><strong>REMOTE</strong> — the latest default (for a tenant copy: the global it was copied from).</li>
+</ul>
+
+<p>Then every field is classified on its own. A field only <em>you</em> touched keeps your value. A field only <em>upstream</em> touched adopts theirs. A field you both changed the same way is no conflict at all. Only a field you both changed <em>differently</em> is a <strong>conflict</strong> — and those are the only ones a human has to look at.</p>
+
+${callout('tip', '🧭', 'It refuses to guess.', 'A merge is rejected while any conflict is unresolved: you must supply a value for each one. Silently picking a side is precisely the failure a merge tool exists to prevent. And if the version you originally copied from was never published — so there is no BASE to compare against — the workbench says so (<code>baseAvailable: false</code>) and treats every difference as a conflict rather than pretending it can tell who moved.')}
+
+${code('bash', `# What has drifted in this family, and how? (Add ?tenantId= to scope to one tenant.)
+curl '/api/admin/realm/prompts/drift'
+# → { entries: [ { id, logicalKey, state: "diverged", ... } ], summary: { in_sync: 40, diverged: 1 } }
+
+# Line up BASE / LOCAL / REMOTE for one record, field by field.
+curl '/api/admin/realm/prompts/RECORD_ID/diff'
+# → { drift: "diverged", baseAvailable: true,
+#     fields: [ { field: "template",    status: "remote_only", resolved: "..." },   # adopt theirs
+#               { field: "category",    status: "local_only",  resolved: "..." },   # keep yours
+#               { field: "description", status: "conflict" } ],                     # you decide
+#     conflicts: ["description"] }
+
+# Resolve the conflicts and apply. Everything else auto-merges.
+curl -X POST '/api/admin/realm/prompts/RECORD_ID/merge' \\
+  -H 'content-type: application/json' -H 'x-csrf-token: ...' \\
+  -d '{ "resolved": { "description": "the wording we agreed on" } }'
+# → { ok: true, drift: "customized" }   # re-baselined; never "diverged" again`)}
+
+<p>Applying a merge <strong>re-baselines</strong> the record: the merged content becomes its current content and the upstream content becomes its new baseline. Drift therefore settles to <code>in_sync</code> when your merge matched upstream exactly, or <code>customized</code> when you kept edits of your own — never back to <code>diverged</code>. Merging a <em>global default</em> changes what every tenant resolves, so it is platform-admin only; merging your own tenant copy is your own business.</p>
+`)}
+
+${section('ten-posture', 'Guardrail posture per tenant — lean without going unsafe', `
+<p>Guardrails are the checks that run around every model call — redacting personal data, catching prompt injection, filtering toxic output, keeping an eye on token budgets, and (more expensively) asking a second model to grade the answer. Every guardrail is always <strong>installed</strong>. Which ones actually <em>run</em> for a given tenant is a per-tenant setting, not an accident of how the database was first created.</p>
+
+${callout('tip', '💸', 'A leaner posture, without a less safe one.', 'The <strong>lean profile</strong> switches off the <em>model-graded</em> checks for one tenant — the ones that cost an extra LLM call on every turn. It will <strong>never</strong> switch off a safety control: PII redaction, content filters, prompt-injection detectors, budgets and escalation policies are protected and are reported back to you as such. Chasing latency can never quietly turn off your PII redaction.')}
+
+${code('bash', `# Give one tenant a lean posture (platform admin).
+curl -X POST '/api/admin/realm/guardrails/profile/lean?tenantId=acme' -H 'x-csrf-token: ...'
+# → { ok: true,
+#     disabled:  ["Hallucination Check", "Cognitive Post: Grounding", ...],   # model-graded, dropped
+#     protected: ["PII Redaction", "Prompt Injection: Prompt Exfiltration"] } # safety, kept on
+
+# Back to the shared posture.
+curl -X DELETE '/api/admin/realm/guardrails/profile/lean?tenantId=acme' -H 'x-csrf-token: ...'`)}
+
+<p>Underneath, this is just the <strong>state overlay</strong> again — a tiny per-(tenant, guardrail) sidecar saying "off for me". It can only ever <em>subtract</em>: the guardrail's own switch still gates everything, so a tenant overlay can never turn <em>on</em> a guardrail the platform has disabled globally. A tenant with no overlay — the default — gets exactly the shared posture.</p>
+`)}
+
 ${section('ten-share', 'Share down the org tree &amp; promote good ideas up', `
 <p>Tenants aren't flat — an org can have sub-tenants (regions, departments, teams). The realm resolves against the <strong>real tenant tree</strong>, so a parent org can customise a prompt once and have every child inherit it (a child that makes its own copy still wins for itself — nearest-owner-wins).</p>
 
@@ -6149,7 +6201,7 @@ export function getDocsHTML(): string {
     { id: 'replay',       label: 'Replay',           icon: '⏮️', group: 'Operations',
       subs: ['replay-record','replay-replay'] },
     { id: 'tenancy',      label: 'Tenancy',          icon: '🏢', group: 'Operations',
-      subs: ['ten-context','ten-budget','ten-caps','ten-realm','ten-drift','ten-share','ten-govern'] },
+      subs: ['ten-context','ten-budget','ten-caps','ten-realm','ten-drift','ten-merge','ten-posture','ten-share','ten-govern'] },
     { id: 'compliance',   label: 'Compliance',       icon: '📋', group: 'Operations',
       subs: ['comp-setup','comp-consent','comp-gdpr'] },
     { id: 'durability',   label: 'Durability',       icon: '💾', group: 'Operations',
@@ -6859,6 +6911,8 @@ var SEARCH_IDX = [
   {s:'tenancy',     t:'Capability Bindings',          k:'capability binding tool policy subscription tier agent mesh', sub:'ten-caps'},
   {s:'tenancy',     t:'Per-tenant config (Tenancy Realm)', k:'realm per-tenant fork customize prompt skill guardrail routing cost policy nearest owner wins provenance content forking multi-tenant override note action mode capability score routing weights org tree inherit hierarchy', sub:'ten-realm'},
   {s:'tenancy',     t:'Safe updates & drift',         k:'drift reconcile version log in_sync customized stale diverged state overlay disable pin per tenant update defaults', sub:'ten-drift'},
+  {s:'tenancy',     t:'Diff / merge workbench',       k:'diverged three-way merge conflict base local remote resolve reconcile drift workbench diff', sub:'ten-merge'},
+  {s:'tenancy',     t:'Guardrail posture (lean)',    k:'lean guardrail profile posture model-graded disable overlay safety protected pii redaction injection cost latency', sub:'ten-posture'},
   {s:'tenancy',     t:'Share down & promote up',      k:'share subtree blast radius promote fork hierarchy tenant tree inherit shadowed', sub:'ten-share'},
   {s:'tenancy',     t:'Governing shared defaults',    k:'propose review queue approve reject promote platform admin pin pinned version deprecate supersede reparent move tenant org tree key collision customize not create governance', sub:'ten-govern'},
   // Compliance

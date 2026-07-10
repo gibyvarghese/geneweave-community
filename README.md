@@ -217,6 +217,44 @@ Every family — prompts, prompt fragments, skills, worker agents, guardrails, t
 cost policies, and the prompt catalog — supports `customize`, `revert`, `propose`, and `deprecate` through
 the same shaped endpoints.
 
+#### Resolving a diverged record (the diff/merge workbench)
+
+Most drift resolves itself: a record nobody edited adopts the new default, one only you edited keeps your
+edit. Only **`diverged`** — you changed it *and* upstream changed it — needs a person. That gets a real
+**three-way merge**, like git, applied to config: **BASE** (what you originally copied, recovered from the
+version log), **LOCAL** (what you have now) and **REMOTE** (the latest default).
+
+Each field is judged on its own — only you touched it → keep yours; only upstream → take theirs; both made
+the same change → no conflict; both changed it differently → a **conflict** you resolve.
+
+```bash
+curl '/api/admin/realm/prompts/drift'                  # what drifted, and how
+curl '/api/admin/realm/prompts/RECORD_ID/diff'         # BASE / LOCAL / REMOTE, field by field
+curl -X POST '/api/admin/realm/prompts/RECORD_ID/merge' \
+  -d '{ "resolved": { "description": "the wording we agreed on" } }'
+# → { ok: true, drift: "customized" }   # re-baselined; never "diverged" again
+```
+
+A merge is **refused while any conflict is unresolved** — silently picking a side is exactly the failure a
+merge tool exists to prevent. If the version you copied from was never published there is no BASE, so the
+workbench says so (`baseAvailable: false`) instead of guessing who moved.
+
+#### Guardrail posture per tenant
+
+Every guardrail is always **installed**; which ones *run* for a tenant is a setting, not an accident of how
+the database was first created. The **lean profile** switches off the model-graded checks (an extra LLM call
+per turn) for one tenant, and **never** a safety control — PII redaction, content filters, injection
+detectors, budgets and escalation policies are protected and reported back as such.
+
+```bash
+curl -X POST '/api/admin/realm/guardrails/profile/lean?tenantId=acme'
+# → { disabled: ["Hallucination Check", ...], protected: ["PII Redaction", ...] }
+curl -X DELETE '/api/admin/realm/guardrails/profile/lean?tenantId=acme'   # back to the shared posture
+```
+
+Underneath it's the state overlay, which can only ever **subtract**: a tenant can never turn *on* a
+guardrail the platform has disabled globally.
+
 ---
 
 ## Configuration reference

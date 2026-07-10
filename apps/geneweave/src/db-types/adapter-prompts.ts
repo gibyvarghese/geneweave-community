@@ -68,6 +68,14 @@ export interface IPromptStore {
   /** D16: move a tenant (and its subtree) under a new parent; returns the before/after + affected subtree. */
   reparentTenant(tenantId: string, newParentTenantId: string | null): Promise<import('../realm-governance.js').ReparentDiff>;
 
+  // ── Tenancy Realm Section E: drift extras (diff / merge workbench) ──
+  /** E18: the three-way diff (BASE / LOCAL / REMOTE) for one record, field by field, plus its conflicts. */
+  realmDiff(family: string, recordId: string): Promise<import('../realm-diff.js').ThreeWayDiff | { error: string }>;
+  /** E18: apply a resolved merge and re-baseline, so drift settles to in_sync/customized, never diverged. */
+  realmMerge(family: string, recordId: string, resolved: Record<string, unknown>): Promise<import('../realm-diff.js').MergeResult>;
+  /** E18: which records in a family have drifted, and how. Generalises the prompts-only drift report. */
+  realmDriftReport(family: string, opts?: { tenantId?: string | null }): Promise<import('../realm-diff.js').RealmDriftReport>;
+
   // Prompt Versions
   createPromptVersion(v: Omit<PromptVersionRow, 'created_at' | 'updated_at'>): Promise<void>;
   getPromptVersion(id: string): Promise<PromptVersionRow | null>;

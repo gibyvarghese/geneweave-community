@@ -1,21 +1,27 @@
 /**
- * @weaveintel/geneweave — Admin Tenancy Realm governance routes (Section D).
+ * @weaveintel/geneweave — Admin Tenancy Realm governance + drift routes.
  *
  * The realm's WRITE path. Resolution (who gets which copy) is elsewhere; these routes govern who may
- * change the shared defaults:
+ * change the shared defaults, and how a drifted record gets reconciled:
  *
- *   ProposeToRealm (D12)   POST   /api/admin/realm/proposals               a tenant proposes its fork
+ *   ProposeToRealm         POST   /api/admin/realm/proposals               a tenant proposes its fork
  *                          GET    /api/admin/realm/proposals               the review queue
  *                          POST   /api/admin/realm/proposals/:id/approve   platform admin → promotes
  *                          POST   /api/admin/realm/proposals/:id/reject    platform admin
- *   Deprecation (D15)      POST   /api/admin/realm/:family/:id/deprecate   platform admin
+ *   Deprecation            POST   /api/admin/realm/:family/:id/deprecate   platform admin
  *                          POST   /api/admin/realm/:family/:id/undeprecate platform admin
- *   Reparent (D16)         POST   /api/admin/tenants/:id/reparent          platform admin
+ *   Reparent               POST   /api/admin/tenants/:id/reparent          platform admin
+ *   Guardrail posture      POST   /api/admin/realm/guardrails/profile/lean platform admin
+ *                          DEL    /api/admin/realm/guardrails/profile/lean platform admin (revert)
+ *   Drift workbench        GET    /api/admin/realm/:family/drift           what has drifted, and how
+ *                          GET    /api/admin/realm/:family/:id/diff        BASE / LOCAL / REMOTE
+ *                          POST   /api/admin/realm/:family/:id/merge       apply a resolved merge
  *
  * Authorization, deliberately two-tier: proposing is a TENANT-admin act (you may only propose a fork
- * your own tenant owns); approving/rejecting/deprecating/reparenting change the SHARED defaults or the
- * org tree, so they are PLATFORM-admin only. Before this, `POST /prompts/:id/promote` let any
- * authenticated admin overwrite the global default for every tenant — that hole is closed here too.
+ * your own tenant owns), and a tenant may diff/merge its OWN forks. Approving, rejecting, deprecating,
+ * reparenting, thinning guardrails, or merging a GLOBAL default all change what every tenant resolves,
+ * so they are PLATFORM-admin only. Before this, `POST /prompts/:id/promote` let any authenticated admin
+ * overwrite the global default for every tenant — that hole is closed here too.
  */
 import type { DatabaseAdapter } from '../../db.js';
 import type { RouterLike, AdminHelpers } from './types.js';
@@ -24,6 +30,7 @@ import { isRealmFamily } from '../../realm-families.js';
 import type { ProposalStatus } from '../../realm-governance.js';
 import { getCapabilityMatrixCache } from '../../capability-matrix-cache.js';
 import { emitCacheEvent } from '../../cache-invalidator.js';
+import { applyLeanGuardrailProfile, clearGuardrailProfile } from '../../realm-guardrail-profile.js';
 
 const isPlatformAdmin = (auth: AuthContext): boolean => auth.persona === 'platform_admin';
 
@@ -148,6 +155,81 @@ export function registerRealmGovernanceRoutes(
     if (!result.ok) { json(res, result.reason === 'not found' ? 404 : 400, { error: result.reason }); return; }
     json(res, 200, { ok: true });
   }, { auth: true, csrf: true });
+
+  // ── E20: the lean guardrail profile (posture as a per-tenant overlay) ───────
+  // Turn the model-graded guardrails off for one tenant — cheaper, faster — while every safety control
+  // (redaction, content filters, injection regexes, budgets, escalation) stays on and is reported back.
+  // Platform-admin only: a tenant must not be able to thin its own guardrails unilaterally.
+  router.post('/api/admin/realm/guardrails/profile/lean', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    const tenantId = new URL(req.url ?? '/', 'http://x').searchParams.get('tenantId');
+    if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    json(res, 200, { ok: true, ...(await applyLeanGuardrailProfile(db, tenantId)) });
+  }, { auth: true, csrf: true });
+
+  // Revert to the shared posture: drop this tenant's guardrail overlays entirely.
+  router.del('/api/admin/realm/guardrails/profile/lean', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    const tenantId = new URL(req.url ?? '/', 'http://x').searchParams.get('tenantId');
+    if (!tenantId) { json(res, 400, { error: 'tenantId required' }); return; }
+    json(res, 200, { ok: true, ...(await clearGuardrailProfile(db, tenantId)) });
+  }, { auth: true, csrf: true });
+
+  // ── E18: the drift diff / merge workbench ───────────────────────────────────
+  // Which records in this family have drifted, and how. `?tenantId=` narrows to one tenant's forks.
+  router.get('/api/admin/realm/:family/drift', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const family = params['family']!;
+    if (!isRealmFamily(family)) { json(res, 400, { error: `unknown realm family '${family}'` }); return; }
+    const q = new URL(req.url ?? '/', 'http://x').searchParams.get('tenantId');
+    // A platform admin sees the whole family by default, or one tenant when ?tenantId= is given.
+    // Anyone else is scoped to their own tenant's forks, whatever they asked for.
+    const opts = isPlatformAdmin(auth)
+      ? (q === null ? {} : { tenantId: q })
+      : { tenantId: auth.tenantId ?? null };
+    json(res, 200, await db.realmDriftReport(family, opts));
+  }, { auth: true });
+
+  // The three-way diff for one record: BASE (what it was forked from) / LOCAL / REMOTE, field by field.
+  router.get('/api/admin/realm/:family/:id/diff', async (_req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const family = params['family']!;
+    if (!isRealmFamily(family)) { json(res, 400, { error: `unknown realm family '${family}'` }); return; }
+    const diff = await db.realmDiff(family, params['id']!);
+    if ('error' in diff) { json(res, diff.error === 'not found' ? 404 : 400, { error: diff.error }); return; }
+    if (!(await mayEditRecord(family, params['id']!, auth))) { json(res, 403, { error: 'Not your record' }); return; }
+    json(res, 200, diff);
+  }, { auth: true });
+
+  // Apply a resolved merge. Merging a GLOBAL default changes what every tenant sees → platform admin.
+  // Merging a tenant's own fork is that tenant's business. A conflict left unresolved is a 409, never a
+  // silent pick — refusing to guess is the whole point of a merge tool.
+  router.post('/api/admin/realm/:family/:id/merge', async (req, res, params, auth) => {
+    if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+    const family = params['family']!;
+    if (!isRealmFamily(family)) { json(res, 400, { error: `unknown realm family '${family}'` }); return; }
+    if (!(await mayEditRecord(family, params['id']!, auth))) { json(res, 403, { error: 'Not your record' }); return; }
+    const body = await optionalBody(req);
+    const resolved = (body['resolved'] && typeof body['resolved'] === 'object') ? body['resolved'] as Record<string, unknown> : {};
+
+    const result = await db.realmMerge(family, params['id']!, resolved);
+    if (!result.ok) {
+      const status = result.reason === 'not found' ? 404 : result.reason?.startsWith('unresolved conflicts') ? 409 : 400;
+      json(res, status, { error: result.reason }); return;
+    }
+    await emitCacheEvent('prompt_update', { merged: params['id'] });
+    json(res, 200, result);
+  }, { auth: true, csrf: true });
+
+  /**
+   * A platform admin may touch any record. Anyone else may only touch their own tenant's fork — never a
+   * global default (that would change what every tenant resolves).
+   */
+  async function mayEditRecord(family: string, recordId: string, auth: AuthContext): Promise<boolean> {
+    if (isPlatformAdmin(auth)) return true;
+    const report = await db.realmDriftReport(family, { tenantId: auth.tenantId ?? null });
+    return report.entries.some((e) => e.id === recordId);
+  }
 
   // ── D16: reparent a tenant in the org tree ──────────────────────────────────
   // Moving a tenant changes its LINEAGE, which changes every inherited config the moved subtree

@@ -660,4 +660,86 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
       expect((await db.resolveTenantEffectivePromptFragments(null)).some((f) => f.content === 'TENANT FRAG')).toBe(false);
     }
   });
+
+  // ── Tenancy Realm Section E (drift extras) ──
+  // Also declared last: a merge rewrites a global's semantic columns and the diff helpers append
+  // realm_versions rows, which would break the count/hash parity assertions above (fork-pollution).
+
+  it('Section E (m161): the BASE-by-hash index exists on both engines', async () => {
+    const { rows } = await pool.query(`SELECT indexname FROM pg_indexes WHERE indexname = 'ix_realm_versions_key_hash'`);
+    expect(rows.length, 'postgres ix_realm_versions_key_hash').toBe(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((sq as any).d.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='ix_realm_versions_key_hash'`).get()).toBeTruthy();
+  });
+
+  it('Section E18: a diverged record produces the same three-way merge on both engines', async () => {
+    const { createSqlVersionLog } = await import('@weaveintel/realm');
+    const { realmContentHash } = await import('../migrations/m151-realm-columns.js');
+    const { loadThreeWayDiff, applyRealmMerge } = await import('../realm-diff.js');
+
+    for (const [db, client, dialect] of [
+      [pg, pool as unknown as import('@weaveintel/realm').SqlClient, 'postgres'],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [sq, { async query(t: string, p: unknown[] = []) { const s = (sq as any).d.prepare(t); return /^\s*(SELECT|PRAGMA|WITH)/i.test(t) ? { rows: s.all(...p) } : (s.run(...p), { rows: [] }); } }, 'sqlite'],
+    ] as const) {
+      const log = createSqlVersionLog<Record<string, unknown>>({ client, dialect, table: 'realm_versions' });
+      const id = randomUUID();
+      const key = 'e18.parity';
+      const base = { name: key, description: 'd', category: 'c', template: 'BASE', variables: null, model_compatibility: null, execution_defaults: null, framework: null };
+      await db.createPrompt({ id, key, name: key, description: 'd', category: 'c', prompt_type: 'template', owner: null, status: 'published', tags: null, template: 'BASE', variables: null, version: '1', model_compatibility: null, execution_defaults: null, framework: null, metadata: null, is_default: 0, enabled: 1 } as never);
+      const h = realmContentHash(base);
+      await client.query(`UPDATE prompts SET realm = 'global', logical_key = ${dialect === 'postgres' ? '$1' : '?'}, content_hash = ${dialect === 'postgres' ? '$2' : '?'}, origin_hash = ${dialect === 'postgres' ? '$3' : '?'} WHERE id = ${dialect === 'postgres' ? '$4' : '?'}`, [key, h, h, id]);
+      await log.append({ family: 'prompts', logicalKey: key, payload: base, note: 'baseline' });
+
+      // upstream changes template + description; operator changes description differently + category
+      await log.append({ family: 'prompts', logicalKey: key, payload: { ...base, template: 'UPSTREAM', description: 'up' } });
+      const localHash = realmContentHash({ ...base, description: 'op', category: 'opcat' });
+      await client.query(`UPDATE prompts SET description = ${dialect === 'postgres' ? '$1' : '?'}, category = ${dialect === 'postgres' ? '$2' : '?'}, content_hash = ${dialect === 'postgres' ? '$3' : '?'} WHERE id = ${dialect === 'postgres' ? '$4' : '?'}`, ['op', 'opcat', localHash, id]);
+
+      const diff = await loadThreeWayDiff(client, dialect, 'prompts', id);
+      expect('error' in diff, `${dialect}: diff loaded`).toBe(false);
+      if ('error' in diff) continue;
+      expect(diff.drift, `${dialect} drift`).toBe('diverged');
+      expect(diff.baseAvailable, `${dialect} base recoverable by hash`).toBe(true);
+      expect(diff.conflicts, `${dialect} conflicts`).toEqual(['description']);
+      const byField = new Map(diff.fields.map((f) => [f.field, f.status]));
+      expect(byField.get('template'), `${dialect} template`).toBe('remote_only');
+      expect(byField.get('category'), `${dialect} category`).toBe('local_only');
+
+      // refuse while unresolved, then merge
+      expect((await applyRealmMerge(client, dialect, 'prompts', id, {})).ok, `${dialect} refuses`).toBe(false);
+      const applied = await applyRealmMerge(client, dialect, 'prompts', id, { description: 'MERGED' });
+      expect(applied.ok, `${dialect} merged`).toBe(true);
+      expect(applied.drift, `${dialect} settles`).toBe('customized');
+
+      const post = await loadThreeWayDiff(client, dialect, 'prompts', id);
+      expect('error' in post ? 'err' : post.drift, `${dialect} no longer diverged`).not.toBe('diverged');
+    }
+  });
+
+  it('Section E20: the base guardrail set is installed on BOTH engines despite migrations pre-seeding the table', async () => {
+    // The retired `cnt(guardrails)===0` gate skipped these entirely, because migrations seed guardrails
+    // before seedDefaultData runs. PII Redaction — a security control — was never installed.
+    for (const [db, label] of [[pg, 'postgres'], [sq, 'sqlite']] as const) {
+      const names = (await db.listGuardrails()).map((g) => g.name);
+      for (const n of ['PII Redaction', 'Toxicity Filter', 'Token Budget', 'Hallucination Check']) {
+        expect(names, `${label}: base guardrail '${n}'`).toContain(n);
+      }
+    }
+  });
+
+  it('Section E20: the lean profile disables model-graded checks and never a safety control, on both engines', async () => {
+    const { applyLeanGuardrailProfile, LEAN_PROTECTED_TYPES, LEAN_DISABLED_TYPES } = await import('../realm-guardrail-profile.js');
+    for (const [db, label] of [[pg, 'postgres'], [sq, 'sqlite']] as const) {
+      const res = await applyLeanGuardrailProfile(db, 'lean-parity');
+      expect(res.disabled.length, `${label}: something disabled`).toBeGreaterThan(0);
+      const rows = await db.resolveTenantEffectiveGuardrails('lean-parity');
+      const states = await db.resolveRealmStates('guardrails', 'lean-parity', rows.map((r) => r.logical_key ?? r.name));
+      for (const r of rows) {
+        const active = states.get(r.logical_key ?? r.name)?.active !== false;
+        if (LEAN_PROTECTED_TYPES.includes(r.type)) expect(active, `${label}: safety '${r.name}' stays on`).toBe(true);
+        else if (LEAN_DISABLED_TYPES.includes(r.type)) expect(active, `${label}: '${r.name}' off`).toBe(false);
+      }
+    }
+  });
 });
