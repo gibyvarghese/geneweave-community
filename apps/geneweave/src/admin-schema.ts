@@ -21,6 +21,7 @@ import {
   LIVE_RUNTIME_ADMIN_TABS,
   A2A_ADMIN_TABS,
   SCOPE_ADMIN_TABS,
+  REALM_ADMIN_TABS,
 } from './admin/schema/index.js';
 
 // ─── Tab groups (sidebar navigation) ─────────────────────────
@@ -78,6 +79,7 @@ export const ADMIN_TAB_GROUPS: AdminTabGroup[] = [
     { key: 'cost-by-task', label: 'Cost by Task' },
   ]},
   { label: 'Governance', icon: '\uD83D\uDEE1\uFE0F', tabs: [
+    { key: 'realm-workbench', label: 'Tenancy Realm' },
     { key: 'guardrails', label: 'Guardrails' },
     { key: 'contracts', label: 'Contracts' },
     { key: 'identity-rules', label: 'Identity Rules' },
@@ -206,4 +208,5 @@ export const ADMIN_TABS = normalizeAdminTabsForModelDiscovery({
   ...LIVE_RUNTIME_ADMIN_TABS,
   ...A2A_ADMIN_TABS,
   ...SCOPE_ADMIN_TABS,
+  ...REALM_ADMIN_TABS,
 });

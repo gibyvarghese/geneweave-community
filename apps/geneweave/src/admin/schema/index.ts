@@ -7,3 +7,4 @@ export { LIVE_MESH_ADMIN_TABS } from './live-mesh-tabs.js';
 export { LIVE_RUNTIME_ADMIN_TABS } from './live-runtime-tabs.js';
 export { A2A_ADMIN_TABS } from './a2a-tabs.js';
 export { SCOPE_ADMIN_TABS } from './scope-tabs.js';
+export { REALM_ADMIN_TABS } from './realm-tabs.js';

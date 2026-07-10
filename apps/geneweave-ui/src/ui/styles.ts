@@ -767,6 +767,41 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .validation-body{font-size:11px;color:var(--fg2);line-height:1.45;white-space:pre-wrap;word-break:break-word}
 
 .mode-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:3px 10px;border-radius:999px;background:var(--accent-dim);color:var(--accent);text-transform:uppercase;letter-spacing:.5px;font-weight:600;border:1px solid rgba(37,99,235,.15)}
+/* Tenancy Realm — provenance / drift badges. Amber = "shared" (a parent's copy reaching down the tree). */
+.realm-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;border:1px solid transparent;white-space:nowrap;line-height:1.5;vertical-align:middle}
+.realm-badge.global{background:var(--bg3);color:var(--fg2);border-color:var(--bg4)}
+.realm-badge.own{background:rgba(37,99,235,.10);color:var(--accent);border-color:rgba(37,99,235,.20)}
+.realm-badge.shared,.realm-badge.inherited{background:rgba(217,138,61,.12);color:var(--amber);border-color:rgba(217,138,61,.28)}
+.realm-badge.deprecated{background:rgba(216,90,48,.10);color:var(--danger);border-color:rgba(216,90,48,.22)}
+.realm-badge.in_sync{background:rgba(14,154,110,.10);color:var(--success);border-color:rgba(14,154,110,.22)}
+.realm-badge.customized{background:rgba(37,99,235,.10);color:var(--accent);border-color:rgba(37,99,235,.20)}
+.realm-badge.stale{background:rgba(217,138,61,.12);color:var(--amber);border-color:rgba(217,138,61,.28)}
+.realm-badge.diverged{background:rgba(216,90,48,.12);color:var(--danger);border-color:rgba(216,90,48,.26)}
+/* Tenancy Realm workbench */
+.realm-wb{max-width:1100px}
+.realm-wb .rw-nav{display:flex;gap:6px;margin:0 0 16px;border-bottom:1px solid var(--bg4)}
+.realm-wb .rw-nav button{background:none;border:none;border-bottom:2px solid transparent;padding:8px 14px;font-size:13px;font-weight:600;color:var(--fg2);cursor:pointer;font-family:var(--font)}
+.realm-wb .rw-nav button.active{color:var(--fg);border-bottom-color:var(--accent)}
+.realm-wb .rw-controls{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px}
+.realm-wb label{display:block;font-size:12px;color:var(--fg2);margin-bottom:4px}
+.realm-wb select,.realm-wb input[type=text],.realm-wb input[type=number]{padding:6px;border:1px solid var(--bg4);border-radius:4px;font-size:13px;background:var(--bg2);color:var(--fg);font-family:var(--font)}
+.realm-wb table{width:100%;border-collapse:collapse;font-size:13px}
+.realm-wb th{text-align:left;padding:6px 8px;color:var(--fg2);font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--bg4)}
+.realm-wb td{padding:6px 8px;border-bottom:1px solid var(--bg3);vertical-align:middle}
+.realm-wb tr.rw-row-click{cursor:pointer}
+.realm-wb tr.rw-row-click:hover td{background:var(--bg2)}
+.realm-wb .rw-diff{border:1px solid var(--bg4);border-radius:6px;padding:14px;margin-top:12px}
+.realm-wb .rw-field{display:grid;grid-template-columns:130px 1fr 1fr 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--bg3);align-items:start;font-size:12px}
+.realm-wb .rw-field.conflict{background:rgba(216,90,48,.05)}
+.realm-wb .rw-field .rw-val{white-space:pre-wrap;word-break:break-word;font-family:var(--mono,monospace);font-size:11px}
+.realm-wb .rw-field textarea{width:100%;min-height:48px;font-family:var(--mono,monospace);font-size:11px;border:1px solid var(--danger);border-radius:4px;padding:4px;background:var(--bg2);color:var(--fg)}
+.realm-wb .rw-btn{padding:6px 14px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer}
+.realm-wb .rw-btn.ghost{background:none;color:var(--fg2);border-color:var(--bg4)}
+.realm-wb .rw-btn:disabled{opacity:.5;cursor:not-allowed}
+.realm-wb .rw-msg{font-size:12px;padding:8px 10px;border-radius:4px;margin-top:8px}
+.realm-wb .rw-msg.ok{background:rgba(14,154,110,.08);color:var(--success)}
+.realm-wb .rw-msg.err{background:rgba(216,90,48,.08);color:var(--danger)}
+.realm-wb .rw-hint{font-size:12px;color:var(--fg2);margin:0 0 10px}
 
 .streaming-indicator span{animation:blink 1.4s infinite both}
 .streaming-indicator span:nth-child(2){animation-delay:.2s}
