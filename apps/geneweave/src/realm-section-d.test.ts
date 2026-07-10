@@ -542,6 +542,28 @@ describe('Tenancy Realm — Section D (write path & governance)', () => {
       expect(shared.visibleRealm).toBe('tenant');
     });
 
+    it('REGRESSION: a row created via plain CRUD (logical_key unset) still collides on its fallback column', async () => {
+      // createGuardrail/createPrompt never populate logical_key — only the migration backfill and the
+      // fork builders do. Such a row still RESOLVES under its name (the resolver's logicalKeyOf falls
+      // back to it), and the composite unique index misses it because NULLs compare distinct. If the
+      // collision check only matched `logical_key`, a second same-named record would slip through and
+      // one logical key would end up with two competing definitions.
+      await db.createGuardrail({
+        id: 'gr-crud-1', name: 'CrudOnlyName', description: 'd', type: 't', stage: 'input',
+        config: null, priority: 1, enabled: 1, trigger_conditions: null, trigger_description: null,
+      } as never);
+      const row = (await db.listGuardrails()).find((g) => g.id === 'gr-crud-1')!;
+      expect(row.logical_key ?? null, 'precondition: plain CRUD leaves logical_key unset').toBeNull();
+
+      const hit = await checkVisibleKeyCollision(client(), 'sqlite', 'guardrails', 'CrudOnlyName', await db.realmContext(null));
+      expect(hit.collides).toBe(true);
+      expect(hit.visibleId).toBe('gr-crud-1');
+      // a tenant sees the same global → must customize it, not create a twin
+      expect((await checkVisibleKeyCollision(client(), 'sqlite', 'guardrails', 'CrudOnlyName', await db.realmContext('uk'))).collides).toBe(true);
+      // an unrelated name is still free
+      expect((await checkVisibleKeyCollision(client(), 'sqlite', 'guardrails', 'OtherName', await db.realmContext(null))).collides).toBe(false);
+    });
+
     it('SECURITY: a hostile family throws; a hostile key is bound, not interpolated', async () => {
       await expect(checkVisibleKeyCollision(client(), 'sqlite', HOSTILE, 'k', await db.realmContext('uk'))).rejects.toThrow(/unknown realm family/);
       const res = await checkVisibleKeyCollision(client(), 'sqlite', 'prompts', HOSTILE, await db.realmContext('uk'));

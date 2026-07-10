@@ -271,11 +271,11 @@ export function assertCustomizable(row: Record<string, unknown>): { ok: true } |
 // ════════════════════════════ D17 — logical-key collision rule ════════════════════════════
 
 /** Map a raw snake_case DB row onto the camelCase realm fields `isVisible` expects. */
-function visibilityFieldsOf(row: Record<string, unknown>): RealmFields {
+function visibilityFieldsOf(row: Record<string, unknown>, logicalKey?: string): RealmFields {
   return {
     realm: (row['realm'] === 'tenant' ? 'tenant' : 'global'),
     ownerTenantId: (row['owner_tenant_id'] as string | null) ?? null,
-    logicalKey: String(row['logical_key'] ?? ''),
+    logicalKey: logicalKey ?? String(row['logical_key'] ?? ''),
     originId: (row['origin_id'] as string | null) ?? null,
     originHash: (row['origin_hash'] as string | null) ?? null,
     contentHash: String(row['content_hash'] ?? ''),
@@ -302,11 +302,22 @@ export async function checkVisibleKeyCollision(
 ): Promise<KeyCollision> {
   if (!logicalKey) return { collides: false };
   const spec = realmFamily(family);
+  // Rows created through the plain admin CRUD (`createGuardrail`, `createPrompt`, …) never populate
+  // `logical_key` — only the migration backfill and the fork builders do. Such a row still RESOLVES
+  // under its fallback column (the resolvers' `logicalKeyOf` falls back to name/key/id), and the
+  // composite unique index does not catch it either because NULLs compare distinct. So match on the
+  // stored key OR, when it is unset, on the family's fallback column — otherwise a second record could
+  // be created under a logical key that already exists. `fallback` is a registry literal, never input.
+  const fallback = spec.logicalKeyFrom;
   const { rows } = await client.query(
-    `SELECT id, realm, owner_tenant_id, share_mode, logical_key FROM ${spec.table} WHERE logical_key = ${ph(dialect, 1)}`, [logicalKey],
+    `SELECT id, realm, owner_tenant_id, share_mode, logical_key, ${fallback} FROM ${spec.table}
+      WHERE logical_key = ${ph(dialect, 1)}
+         OR ((logical_key IS NULL OR logical_key = '') AND ${fallback} = ${ph(dialect, 2)})`,
+    [logicalKey, logicalKey],
   );
   for (const raw of rows as Array<Record<string, unknown>>) {
-    if (isVisible(visibilityFieldsOf(raw), ctx)) {
+    if (logicalKeyOfRow(spec, raw) !== logicalKey) continue; // defensive: the OR-branch can only match, but be exact
+    if (isVisible(visibilityFieldsOf(raw, logicalKey), ctx)) {
       return {
         collides: true,
         reason: `logical key '${logicalKey}' already exists and is visible to you — customize it instead of creating a new one`,
