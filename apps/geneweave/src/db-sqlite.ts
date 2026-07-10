@@ -5039,8 +5039,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
   }
 
   async listSemanticMemory(userId: string, limit = 20): Promise<SemanticMemoryRow[]> {
+    // `id` is a deterministic tiebreaker: rows saved in the same millisecond share a created_at, and
+    // without it the newest-first order is nondeterministic AND differs between SQLite (rowid) and
+    // Postgres (heap order) — the source of a cross-engine parity flake.
     return this.d.prepare(
-      'SELECT * FROM semantic_memory WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
+      'SELECT * FROM semantic_memory WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
     ).all(userId, limit) as SemanticMemoryRow[];
   }
 

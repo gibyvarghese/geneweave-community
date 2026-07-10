@@ -161,8 +161,10 @@ export function pgMemoryStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     },
 
     async listSemanticMemory(userId: string, limit = 20): Promise<SemanticMemoryRow[]> {
+      // `id` tiebreaker (byte-order to match SQLite): same-millisecond rows share created_at, so without
+      // it newest-first is nondeterministic and diverges from SQLite — a cross-engine parity flake.
       const { rows } = await ctx.query(
-        'SELECT * FROM semantic_memory WHERE user_id = $1 ORDER BY created_at COLLATE "C" DESC LIMIT $2',
+        'SELECT * FROM semantic_memory WHERE user_id = $1 ORDER BY created_at COLLATE "C" DESC, id COLLATE "C" DESC LIMIT $2',
         [userId, limit],
       );
       return rows as unknown as SemanticMemoryRow[];

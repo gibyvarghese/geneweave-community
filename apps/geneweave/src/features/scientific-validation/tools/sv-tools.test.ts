@@ -248,20 +248,27 @@ describe('createEvidenceTools', () => {
     }
   });
 
+  // These two hit real external APIs to prove the tool returns valid JSON on ANY outcome (success,
+  // HTTP error, or a slow/dead network). The tool bounds its own request at 15 s (httpRequest timeout)
+  // and turns a failure into an ok:false JSON result — so the TEST timeout must exceed that 15 s, or a
+  // slow network trips vitest's default 5 s timeout before the tool can return, which is exactly the
+  // flake this replaces. 20 s covers the worst case deterministically.
+  const NETWORK_OUTCOME_TIMEOUT_MS = 20_000;
+
   it('arxiv_search returns JSON (ok:boolean) on any network outcome', async () => {
     const tool = tools['arxiv_search']!;
     const out = await tool.invoke(CTX, { name: 'arxiv_search', arguments: { query: 'quantum gravity', max_results: 2 } });
     // output must be a parseable JSON string
     const parsed = JSON.parse(out.content) as { ok?: boolean };
     expect(typeof parsed.ok).toBe('boolean');
-  });
+  }, NETWORK_OUTCOME_TIMEOUT_MS);
 
   it('crossref_resolve returns JSON on any network outcome', async () => {
     const tool = tools['crossref_resolve']!;
     const out = await tool.invoke(CTX, { name: 'crossref_resolve', arguments: { doi: '10.1234/test.doi' } });
     const parsed = JSON.parse(out.content) as { ok?: boolean };
     expect(typeof parsed.ok).toBe('boolean');
-  });
+  }, NETWORK_OUTCOME_TIMEOUT_MS);
 
   it('reproducibility hash is deterministic for identical queries', () => {
     function hash(key: string, params: Record<string, unknown>): string {
