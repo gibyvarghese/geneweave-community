@@ -1197,6 +1197,9 @@ export async function streamMessageImpl(
       promptContracts: streamContractInfo,
       promptStrategy: resolvedSystemPrompt.strategy,
       promptResolution: resolvedSystemPrompt.resolution,
+      // Tenancy Realm (B8): stamp the winning tenant's prompt-fork provenance (undefined for the global
+      // default). Queryable per run via messages.metadata.
+      realmProvenance: resolvedSystemPrompt.realm,
       streamInterrupted: streamErrored || undefined,
       traceId,
       artifactRefs: artifactRefs.length ? artifactRefs : undefined,
@@ -1250,6 +1253,7 @@ export async function streamMessageImpl(
       streamMemorySettings.enabledTools,
     ),
     streamTelemetry?.systemPromptSha256,
+    resolvedSystemPrompt.realm,
   );
 
   deps.endSse(res);

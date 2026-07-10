@@ -136,6 +136,41 @@ live On/Off toggles and validation:
 
 <p align="center"><img src="docs/screenshots/05-builder.png" alt="Builder" width="900"></p>
 
+### 🏢 Per-tenant customization (the Tenancy Realm)
+Everything above — prompts, skills, guardrails, model-routing rules, cost budgets, tool policies, output
+contracts, prompt strategies — ships as one shared **global default** that every workspace uses. If you run
+geneWeave for **multiple tenants** (customers / workspaces / orgs), any one tenant can keep its **own copy**
+of any of these and tweak it, **without affecting anyone else** — and without you maintaining a separate
+config per customer.
+
+Think of it like a shared document template each team can *make a copy of* and edit for itself. A team that
+never copies it keeps getting the latest template automatically; a team that copies it keeps *their* version.
+The rule for who gets what is **nearest-owner-wins**: your own tenant's copy beats a parent org's shared
+copy, which beats the global default. A copy is never visible to another tenant.
+
+```bash
+# Give tenant "acme" its own stricter copy of the built-in "PII Redaction" guardrail
+# (same shape for /prompt-strategies, /tool-policies, /routing, /cost-policies, /skills, ...):
+curl -X POST /api/admin/guardrails/GLOBAL_ID/customize \
+  -H 'content-type: application/json' -H 'x-csrf-token: ...' \
+  -d '{ "tenantId": "acme", "config": { "threshold": 0.95 } }'
+
+curl '/api/admin/guardrails/GLOBAL_ID/realm?tenantId=acme'      # who acme gets + provenance
+curl -X DELETE '/api/admin/guardrails/GLOBAL_ID/customize?tenantId=acme'   # revert to the global
+```
+
+- **Safe updates:** ship a new built-in default and tenants who didn't customise it get the update; those
+  who did keep their edit (flagged for review). A per-tenant **state overlay** can disable or reprioritise a
+  shared built-in for one tenant without copying it.
+- **Org tree:** a parent org can customise once and have child tenants inherit it; a great tenant tweak can
+  be **promoted** up to become the new global default for everyone.
+- **Provenance:** every run records which tenant's fork produced its system prompt, so "which config
+  produced this output, for this tenant?" is answerable.
+
+Resolution runs **byte-for-byte identically on SQLite and Postgres** (built on the open-source
+`@weaveintel/realm` engine). **Configure:** Admin → the relevant area (Governance / Prompts / Routing / Cost)
+→ the row's **Customize** action.
+
 ---
 
 ## Configuration reference

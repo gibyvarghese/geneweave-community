@@ -803,6 +803,10 @@ export async function sendMessageImpl(
       promptContracts: contractInfo,
       promptStrategy: resolvedSystemPrompt.strategy,
       promptResolution: resolvedSystemPrompt.resolution,
+      // Tenancy Realm (B8): stamp which tenant's fork (own_override/native/inherited) supplied the
+      // system prompt for this run — undefined (omitted) when the plain global default won. Queryable
+      // per run via messages.metadata for fleet-wide provenance auditing.
+      realmProvenance: resolvedSystemPrompt.realm,
       traceId,
     }),
     tokensUsed: usage.totalTokens,
@@ -845,6 +849,7 @@ export async function sendMessageImpl(
       memorySettings.enabledTools,
     ),
     telemetry?.systemPromptSha256,
+    resolvedSystemPrompt.realm,
   );
 
   return {

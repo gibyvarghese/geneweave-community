@@ -96,6 +96,7 @@ export async function recordTraceSpans(
   toolCallEvents?: ToolCallObservableEvent[],
   capabilities?: CapabilityTelemetrySummary[],
   systemPromptSha256?: string,
+  realmProvenance?: unknown,
 ): Promise<void> {
   try {
     // Root span
@@ -107,6 +108,11 @@ export async function recordTraceSpans(
     };
     if (systemPromptSha256) {
       rootAttributes['systemPromptFingerprint'] = systemPromptSha256;
+    }
+    // Tenancy Realm (B8): stamp the winning prompt-fork provenance on the root span so run traces are
+    // queryable per tenant fleet-wide (undefined for the plain global default → omitted).
+    if (realmProvenance) {
+      rootAttributes['realmProvenance'] = realmProvenance;
     }
     await db.saveTrace({
       id: newUUIDv7(), userId, chatId, messageId,
