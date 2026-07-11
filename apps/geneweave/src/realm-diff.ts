@@ -115,10 +115,27 @@ export function threeWayFieldDiff(
  * LOCAL value as a placeholder and are listed in `conflicts` — a caller must not apply a merge with
  * unresolved conflicts without an explicit human choice (see `applyRealmMerge`).
  */
-export function autoMerge(diff: ThreeWayDiff): { merged: Payload; conflicts: string[] } {
+export function autoMerge(
+  diff: ThreeWayDiff,
+  structured?: Record<string, (base: unknown, local: unknown, remote: unknown) => { value: unknown; conflicts: string[] }>,
+): { merged: Payload; conflicts: string[] } {
   const merged: Payload = {};
-  for (const f of diff.fields) merged[f.field] = f.status === 'conflict' ? f.local : f.resolved;
-  return { merged, conflicts: [...diff.conflicts] };
+  const conflicts: string[] = [];
+  for (const f of diff.fields) {
+    // A structured field (e.g. a workflow's node graph) that conflicts atomically is re-merged element by
+    // element: the non-conflicting elements resolve, and only genuinely-conflicting elements remain — so a
+    // vendor-added node and a tenant re-wiring coexist instead of the whole field reading as one conflict.
+    const sm = structured?.[f.field];
+    if (sm && f.status === 'conflict') {
+      const res = sm(f.base, f.local, f.remote);
+      merged[f.field] = res.value;
+      if (res.conflicts.length > 0) conflicts.push(f.field);
+      continue;
+    }
+    if (f.status === 'conflict') { merged[f.field] = f.local; conflicts.push(f.field); }
+    else merged[f.field] = f.resolved;
+  }
+  return { merged, conflicts };
 }
 
 // ════════════════════════════ loading the three payloads ════════════════════════════

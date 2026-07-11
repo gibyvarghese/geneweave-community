@@ -222,8 +222,11 @@ export async function ensureFamilyBaselines(client: SqlClient, dialect: SqlDiale
     const lk = logicalKeyOfRow(spec, row);
     if (!lk) continue;
     const live = hashRowLive(spec, row);
-    // Fill a missing content_hash even for an already-versioned row: a row seeded after its migration ran
-    // keeps content_hash='' because the ledgered runner no longer re-hashes it. Keep this idempotent.
+    // Rows seeded AFTER their migration ran keep logical_key/content_hash unset (the ledgered runner no
+    // longer re-backfills them), so the reconcile is the authoritative populator of both. Idempotent.
+    if (!(row['logical_key'] as string | null)) {
+      await client.query(`UPDATE ${spec.table} SET logical_key = ${ph(dialect, 1)} WHERE id = ${ph(dialect, 2)}`, [lk, String(row['id'])]);
+    }
     if (!(row['content_hash'] as string | null)) {
       await client.query(`UPDATE ${spec.table} SET content_hash = ${ph(dialect, 1)} WHERE id = ${ph(dialect, 2)}`, [live, String(row['id'])]);
     }

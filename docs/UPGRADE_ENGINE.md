@@ -72,6 +72,24 @@ How eagerly a family adopts a *stale* default (one you never touched) is a per-f
 (surface even untouched changes for explicit review). The policy is conservative by default and easy to
 audit in one place.
 
+## Structured fields (workflows)
+
+Most built-ins are flat records, and the reconcile compares them field by field. A workflow is different:
+its `steps` is a graph of nodes, each carrying its own wiring. Treating that as one atomic value would make
+a release adding a node conflict with a tenant re-wiring a *different* node. So the merge for workflows is
+**per node**: a node the tenant never touched that the release changed is upgraded; a node the tenant
+customised is kept; a node either side *added* coexists; only a node both sides changed differently is a
+conflict — and even then the tenant's version is kept and flagged, never lost. The same three-way logic,
+applied to each node instead of the whole field.
+
+## Coverage
+
+The reconcile covers every built-in family the product ships — prompts, skills, guardrails, tool/routing/cost
+policies, prompt strategies/contracts/frameworks/fragments, worker agents, workflows, the model catalog
+(pricing, task types, provider tool adapters), the live-agent registries (handler kinds, attention policies),
+and scaffold templates. Registering a family is additive: it gets the standard realm columns and joins the
+reconcile automatically.
+
 ## Safety: the migration ledger and pre-upgrade snapshots
 
 - **Migration ledger.** Schema migrations are recorded in a `schema_migrations` ledger as they apply, keyed
