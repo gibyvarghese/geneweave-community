@@ -108,6 +108,15 @@ class PostgresCore {
       }
     }
     await this.sql.query(POSTGRES_FULL_SCHEMA);
+
+    // Tenancy Realm (Section H): opt-in Postgres RLS as a defense-in-depth backstop for tenant
+    // isolation. OFF unless GENEWEAVE_PG_RLS=1 — the app predicate is the correctness mechanism; this is
+    // a second line. Idempotent, and inert for every query the app runs today (RLS only bites inside a
+    // `withTenantContext` scope), so enabling it never changes existing behaviour.
+    if (process.env['GENEWEAVE_PG_RLS'] === '1') {
+      const { enableRealmRls } = await import('./db-postgres/realm-rls.js');
+      await enableRealmRls(this.sql);
+    }
   }
 
   async close(): Promise<void> {
