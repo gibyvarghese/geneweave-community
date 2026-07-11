@@ -79,6 +79,20 @@ CREATE TABLE IF NOT EXISTS "agenda_items" (
   PRIMARY KEY ("id")
 );
 
+CREATE TABLE IF NOT EXISTS "tenants" (
+  "id" TEXT,
+  "name" TEXT NOT NULL,
+  "parent_tenant_id" TEXT,
+  "path" TEXT NOT NULL,
+  "depth" BIGINT NOT NULL DEFAULT 0,
+  "status" TEXT NOT NULL DEFAULT 'active',
+  "metadata" TEXT NOT NULL DEFAULT '{}',
+  "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  PRIMARY KEY ("id"),
+  FOREIGN KEY ("parent_tenant_id") REFERENCES "tenants" ("id")
+);
+
 CREATE TABLE IF NOT EXISTS "users" (
   "id" TEXT,
   "email" TEXT NOT NULL,
@@ -92,7 +106,8 @@ CREATE TABLE IF NOT EXISTS "users" (
   "email_verified_at" TEXT,
   "mfa_enabled" BIGINT NOT NULL DEFAULT 0,
   "mfa_totp_secret" TEXT,
-  PRIMARY KEY ("id")
+  PRIMARY KEY ("id"),
+  FOREIGN KEY ("tenant_id") REFERENCES "tenants" ("id") ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS "chats" (
@@ -3590,20 +3605,6 @@ CREATE TABLE IF NOT EXISTS "tenant_ui_translations" (
   "key_count" BIGINT NOT NULL DEFAULT 0,
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   PRIMARY KEY ("tenant_id", "locale")
-);
-
-CREATE TABLE IF NOT EXISTS "tenants" (
-  "id" TEXT,
-  "name" TEXT NOT NULL,
-  "parent_tenant_id" TEXT,
-  "path" TEXT NOT NULL,
-  "depth" BIGINT NOT NULL DEFAULT 0,
-  "status" TEXT NOT NULL DEFAULT 'active',
-  "metadata" TEXT NOT NULL DEFAULT '{}',
-  "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
-  "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
-  PRIMARY KEY ("id"),
-  FOREIGN KEY ("parent_tenant_id") REFERENCES "tenants" ("id")
 );
 
 CREATE TABLE IF NOT EXISTS "tool_approval_requests" (

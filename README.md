@@ -178,6 +178,11 @@ Resolution runs **byte-for-byte identically on SQLite and Postgres** (built on t
 `@weaveintel/realm` engine). **Configure:** Admin → the relevant area (Governance / Prompts / Routing / Cost)
 → the row's **Customize** action.
 
+**Referential integrity:** `users.tenant_id` is a real foreign key to the `tenants` table (enforced on
+both engines), so a user can never be assigned to a tenant that doesn't exist — a bad assignment is
+rejected at write time rather than stored as a dangling reference. Deleting a tenant falls its users back
+to the global scope (`ON DELETE SET NULL`) instead of deleting them.
+
 #### Governing the shared defaults
 
 Changing what *one* tenant sees is safe — a copy only affects its owner. Changing the **global default**

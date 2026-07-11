@@ -4,6 +4,18 @@ import type { DatabaseAdapter } from '../../db.js';
 import { hashPassword } from '../../auth.js';
 import type { RouterLike } from '../api/types.js';
 
+/**
+ * Tenancy Realm (m162): `users.tenant_id` now has a FK to `tenants(id)`. Assigning a user to a tenant
+ * that doesn't exist is rejected by the database — recognise that so the route answers with a clear 400
+ * instead of leaking a raw driver error as a 500. `tenant_id` is the ONLY outbound foreign key on the
+ * `users` table, so any foreign-key violation on a user insert/update is this one; SQLite reports it
+ * generically ("FOREIGN KEY constraint failed", no column named), Postgres names the constraint — both
+ * contain "foreign key", and nothing else the route can hit does.
+ */
+export function isTenantFkViolation(err: unknown): boolean {
+  return (err instanceof Error ? err.message : String(err)).toLowerCase().includes('foreign key');
+}
+
 export function registerAdminUserRoutes(
   router: RouterLike,
   db: DatabaseAdapter,
@@ -73,14 +85,12 @@ export function registerAdminUserRoutes(
 
     const id = newUUIDv7();
     const passwordHash = await hashPassword(password);
-    await db.createUser({
-      id,
-      email,
-      name,
-      passwordHash,
-      persona,
-      tenantId,
-    });
+    try {
+      await db.createUser({ id, email, name, passwordHash, persona, tenantId });
+    } catch (err) {
+      if (isTenantFkViolation(err)) { json(res, 400, { error: `tenant '${tenantId}' does not exist` }); return; }
+      throw err;
+    }
     const user = await db.getUserById(id);
     json(res, 201, { user: sanitizeUser(user) });
   }, { auth: true, csrf: true });
@@ -132,7 +142,12 @@ export function registerAdminUserRoutes(
       }
     }
 
-    await db.updateUser(existing.id, updates);
+    try {
+      await db.updateUser(existing.id, updates);
+    } catch (err) {
+      if (isTenantFkViolation(err)) { json(res, 400, { error: `tenant '${updates.tenantId}' does not exist` }); return; }
+      throw err;
+    }
     const user = await db.getUserById(existing.id);
     json(res, 200, { user: sanitizeUser(user) });
   }, { auth: true, csrf: true });

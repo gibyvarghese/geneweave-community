@@ -22,6 +22,9 @@ function tmpDb(): string {
 async function freshDb(): Promise<SQLiteAdapter> {
   const db = new SQLiteAdapter(tmpDb());
   await db.initialize(); await db.seedDefaultData();
+  // users.tenant_id is a FK to tenants(id) (m162) — create the tenant before assigning users to it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (db as any).d.prepare(`INSERT OR IGNORE INTO tenants (id,name,path,depth,status) VALUES ('tA','tA','/tA/',0,'active')`).run();
   await db.createUser({ id: 'u1', email: 'giby@weaveland.io', name: 'Giby Varghese', passwordHash: 'x', persona: 'tenant_admin', tenantId: 'tA' });
   await db.createUser({ id: 'u2', email: 'mira@weaveland.io', name: 'Mira Vane', passwordHash: 'x', persona: 'analyst', tenantId: 'tA' });
   return db;
