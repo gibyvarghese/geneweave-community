@@ -183,6 +183,13 @@ both engines), so a user can never be assigned to a tenant that doesn't exist �
 rejected at write time rather than stored as a dangling reference. Deleting a tenant falls its users back
 to the global scope (`ON DELETE SET NULL`) instead of deleting them.
 
+**Optional Postgres row-level security (defense in depth):** the app-level tenant scoping is the
+correctness mechanism; on Postgres you can add an independent backstop at the database. Set
+`GENEWEAVE_PG_RLS=1` and every tenant-scoped table gets a row-security policy — inert for normal operation
+(admin and cross-tenant reads still see everything), but code running inside a tenant scope **cannot** read
+or write another tenant's rows, even a query that explicitly asks for them. So a query that ever forgot its
+tenant filter still can't leak. Off by default, Postgres-only (SQLite installs are unaffected).
+
 #### Governing the shared defaults
 
 Changing what *one* tenant sees is safe — a copy only affects its owner. Changing the **global default**
