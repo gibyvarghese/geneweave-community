@@ -160,6 +160,14 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return resyncPromptToPackage(ctx as unknown as SqlClient, 'postgres', promptId);
     },
 
+    /** Registry-wide seed reconcile (Postgres). Mirror of the SQLite adapter method; see there. */
+    async seedReconcileRealm() {
+      const { performSeedReconcile } = await import('../realm-seed-reconcile.js');
+      const { collectRealmSeedDefaults } = await import('../realm-seed-defaults.js');
+      const { runId } = await performSeedReconcile(ctx as unknown as SqlClient, 'postgres', collectRealmSeedDefaults());
+      return { runId };
+    },
+
     async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
       return setRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId, patch);
     },

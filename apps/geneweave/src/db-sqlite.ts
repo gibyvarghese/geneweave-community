@@ -27,6 +27,8 @@ import {
 import { resolveTenantEffectiveRoutingPolicies } from './routing-policy-realm.js';
 import { resolveTenantEffectiveCostPolicies } from './cost-policy-realm.js';
 import { reconcilePromptRealm, sqliteSqlClient, promptDriftReport, resyncPromptToPackage } from './realm-prompt-drift.js';
+import { performSeedReconcile } from './realm-seed-reconcile.js';
+import { collectRealmSeedDefaults } from './realm-seed-defaults.js';
 import { setRealmState, clearRealmState, listRealmStates, resolveRealmStates } from './realm-tenant-state.js';
 import { buildTenantContext, promptBlastRadiusById, setPromptShareMode, promotePromptForkToGlobal } from './realm-hierarchy.js';
 
@@ -1071,6 +1073,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   async resyncPromptToPackage(promptId: string): Promise<{ ok: boolean; reason?: string }> {
     return resyncPromptToPackage(sqliteSqlClient(this.d), 'sqlite', promptId);
+  }
+
+  /**
+   * Registry-wide seed reconcile: publish this release's shipped defaults for every realm family, adopt
+   * changed defaults the operator never touched, keep customized/diverged rows, and record every outcome
+   * to upgrade_details under a persisted upgrade run. Called by applySeed after all seed sections run.
+   */
+  async seedReconcileRealm(): Promise<{ runId: string }> {
+    const { runId } = await performSeedReconcile(sqliteSqlClient(this.d), 'sqlite', collectRealmSeedDefaults());
+    return { runId };
   }
 
   async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {

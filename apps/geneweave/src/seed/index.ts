@@ -63,4 +63,15 @@ export async function applySeed(db: DatabaseAdapter): Promise<void> {
       if (HEAVY.has(g.type) && g.enabled) await db.updateGuardrail(g.id, { enabled: 0 });
     }
   }
+
+  // ── Registry-wide realm seed reconcile (Upgrade Engine, L4) ───────────────────
+  // Runs LAST, after every seed section has inserted its rows, so the reconcile sees the final shipped
+  // state. For each realm family it publishes this release's defaults into realm_versions and — the key
+  // upgrade behaviour — adopts a changed default the operator never touched (stale), keeps a customized or
+  // diverged one, and records every outcome to upgrade_details under a persisted upgrade run. Content-
+  // addressed, so on an unchanged re-boot it is a cheap no-op. Called defensively (like seedDefaultData)
+  // so an adapter that does not implement it simply skips this step.
+  if ('seedReconcileRealm' in db && typeof (db as { seedReconcileRealm?: unknown }).seedReconcileRealm === 'function') {
+    await (db as { seedReconcileRealm(): Promise<{ runId: string }> }).seedReconcileRealm();
+  }
 }

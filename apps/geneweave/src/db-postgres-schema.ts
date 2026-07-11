@@ -2638,6 +2638,52 @@ CREATE TABLE IF NOT EXISTS "realm_versions" (
   PRIMARY KEY ("id")
 );
 
+-- Upgrade Engine — migration ledger + run persistence (mirrors SQLite: runner-managed schema_migrations,
+-- m163 upgrade_runs/upgrade_details). Postgres applies this schema declaratively (idempotent), so its
+-- "ledger" of applied DDL is the schema itself; the shared run/detail persistence is dialect-neutral.
+CREATE TABLE IF NOT EXISTS "schema_migrations" (
+  "id" TEXT PRIMARY KEY,
+  "hash" TEXT NOT NULL,
+  "applied_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS "upgrade_runs" (
+  "id" TEXT,
+  "mode" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "from_version" TEXT,
+  "to_version" TEXT,
+  "dialect" TEXT,
+  "summary_json" TEXT NOT NULL DEFAULT '{}',
+  "started_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "finished_at" TEXT,
+  PRIMARY KEY ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "upgrade_details" (
+  "id" TEXT,
+  "run_id" TEXT NOT NULL,
+  "family" TEXT NOT NULL,
+  "logical_key" TEXT NOT NULL,
+  "layer" TEXT NOT NULL DEFAULT 'L4',
+  "disposition" TEXT NOT NULL,
+  "priority" TEXT NOT NULL DEFAULT 'P3',
+  "base_hash" TEXT,
+  "local_hash" TEXT,
+  "remote_hash" TEXT,
+  "note" TEXT,
+  "resolution" TEXT,
+  "resolved_at" TEXT,
+  "resolved_by" TEXT,
+  "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS ix_upgrade_details_run ON upgrade_details(run_id);
+CREATE INDEX IF NOT EXISTS ix_upgrade_details_family_key ON upgrade_details(family, logical_key);
+CREATE INDEX IF NOT EXISTS ix_upgrade_details_priority ON upgrade_details(priority);
+CREATE INDEX IF NOT EXISTS ix_upgrade_details_disposition ON upgrade_details(disposition);
+CREATE INDEX IF NOT EXISTS ix_upgrade_details_propagation ON upgrade_details(family, logical_key, remote_hash);
+
 CREATE TABLE IF NOT EXISTS "recipe_configs" (
   "id" TEXT,
   "name" TEXT NOT NULL,

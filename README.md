@@ -277,6 +277,28 @@ Provenance is visible in place too: any admin list with a **realm** column badge
 global default, blue for a tenant's own copy, **amber for a copy shared down the org tree**, red for a
 deprecated one.
 
+### Staying up to date across releases
+
+geneWeave ships built-in defaults — prompts, skills, guardrails, routing/cost policies, and the rest. When
+you upgrade to a newer release, some of those defaults change. geneWeave reconciles them the way a good
+package manager handles a config file you edited: it never clobbers your edits, and never leaves you stuck
+on an old default. On startup, for every built-in it compares three things — what it shipped last time,
+what's in your database now, and what this release wants to ship — and:
+
+- a default **you never touched** that the release improved is **adopted automatically**;
+- a default **you customised** is **kept** and flagged, never overwritten;
+- one where **both** changed is **kept** and surfaced for you to merge (the same three-way merge workbench
+  above);
+- brand-new defaults are added, and a built-in that's been retired is flagged, never silently deleted.
+
+Every one of these outcomes is recorded, so after an upgrade you can see exactly what was adopted, what was
+kept because you'd customised it, and what needs a look — ordered by priority (safety-critical items like
+guardrails first). Schema migrations are tracked in a ledger so each one runs once and only once, and the
+database is snapshotted before an upgrade touches it so a failed upgrade rolls back cleanly. None of this
+needs configuration — it's simply how startup works. Set `GENEWEAVE_ENABLE_LLM_JUDGES=1` and the other
+documented flags as usual; the reconcile respects your choices. See
+[`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md) for the full model.
+
 ---
 
 ## Configuration reference
