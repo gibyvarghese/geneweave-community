@@ -19,15 +19,19 @@ import { GUARDRAIL_SEMANTIC_COLS } from './migrations/m156-realm-columns-guardra
 import { TOOLPOLICY_SEMANTIC_COLS } from './migrations/m157-realm-columns-tool-policies.js';
 import { ROUTING_SEMANTIC_COLS, COST_SEMANTIC_COLS } from './migrations/m158-realm-columns-routing-cost.js';
 import { STRATEGY_SEMANTIC_COLS, CONTRACT_SEMANTIC_COLS, FRAMEWORK_SEMANTIC_COLS } from './migrations/m159-realm-columns-prompt-catalog.js';
+import { WORKFLOW_SEMANTIC_COLS } from './migrations/m164-realm-columns-workflows.js';
+import { MODEL_PRICING_SEMANTIC_COLS, TASK_TYPE_SEMANTIC_COLS, PROVIDER_TOOL_ADAPTER_SEMANTIC_COLS } from './migrations/m165-realm-columns-model-catalog.js';
+import { LIVE_HANDLER_KIND_SEMANTIC_COLS, LIVE_ATTENTION_POLICY_SEMANTIC_COLS } from './migrations/m166-realm-columns-live-registries.js';
+import { SCAFFOLD_TEMPLATE_SEMANTIC_COLS } from './migrations/m167-realm-columns-templates.js';
 
 /**
- * How a family derives the logical key from a row:
- *  • 'key'  — the row's canonical `key` column (a fork stores `key#tenant`, logical_key stays canonical)
- *  • 'name' — the row's `name` column
- *  • 'id'   — the row's own id (skills: a fork's logical_key is the global skill's id)
- * In every case the stored `logical_key` column wins when present; this is only the fallback.
+ * How a family derives the logical key from a row: the NAME OF THE COLUMN the logical key falls back to
+ * when the stored `logical_key` column is empty. Usually the family's natural key — `key`, `name`, `id`,
+ * or another single column such as `task_key` / `provider` / `kind`. The stored `logical_key` column
+ * always wins when present (the migration backfills it, including composite keys as a concatenation); this
+ * is only the fallback, spliced into SQL as a column name, so it must be a real column and never user input.
  */
-export type LogicalKeySource = 'key' | 'name' | 'id';
+export type LogicalKeySource = string;
 
 export interface RealmFamilySpec {
   /** The `family` string used in realm_versions / realm_tenant_state / realm_proposals. */
@@ -54,6 +58,19 @@ export const REALM_FAMILIES: Readonly<Record<string, RealmFamilySpec>> = Object.
   prompt_strategies:  { family: 'prompt_strategies',  table: 'prompt_strategies',  semanticCols: STRATEGY_SEMANTIC_COLS,  logicalKeyFrom: 'key'  },
   prompt_contracts:   { family: 'prompt_contracts',   table: 'prompt_contracts',   semanticCols: CONTRACT_SEMANTIC_COLS,  logicalKeyFrom: 'key'  },
   prompt_frameworks:  { family: 'prompt_frameworks',  table: 'prompt_frameworks',  semanticCols: FRAMEWORK_SEMANTIC_COLS, logicalKeyFrom: 'key'  },
+  // ── Upgrade Engine (Phase 0b): the routing/runtime catalog families ──────────────────────────────
+  workflows:              { family: 'workflows',              table: 'workflow_defs',           semanticCols: WORKFLOW_SEMANTIC_COLS,               logicalKeyFrom: 'name'     },
+  // model_pricing keys on the (provider, model_id) pair; the migration stores the composite in logical_key.
+  model_pricing:          { family: 'model_pricing',          table: 'model_pricing',           semanticCols: MODEL_PRICING_SEMANTIC_COLS,          logicalKeyFrom: 'model_id' },
+  task_type_definitions:  { family: 'task_type_definitions',  table: 'task_type_definitions',   semanticCols: TASK_TYPE_SEMANTIC_COLS,              logicalKeyFrom: 'task_key' },
+  provider_tool_adapters: { family: 'provider_tool_adapters', table: 'provider_tool_adapters',  semanticCols: PROVIDER_TOOL_ADAPTER_SEMANTIC_COLS,  logicalKeyFrom: 'provider' },
+  live_handler_kinds:     { family: 'live_handler_kinds',     table: 'live_handler_kinds',      semanticCols: LIVE_HANDLER_KIND_SEMANTIC_COLS,      logicalKeyFrom: 'kind'     },
+  live_attention_policies:{ family: 'live_attention_policies',table: 'live_attention_policies', semanticCols: LIVE_ATTENTION_POLICY_SEMANTIC_COLS,  logicalKeyFrom: 'key'      },
+  scaffold_templates:     { family: 'scaffold_templates',     table: 'scaffold_templates',      semanticCols: SCAFFOLD_TEMPLATE_SEMANTIC_COLS,      logicalKeyFrom: 'name'     },
+  // NB model_capability_scores is intentionally NOT registered here: it already carries a tenant_id owner
+  // and a bespoke resolver (capability-score-realm.ts) keyed on (provider, model_id, task_key). Folding it
+  // onto the standard owner_tenant_id + single-logical-key pattern is a resolver-convergence change tracked
+  // separately, not a mechanical registration.
 });
 
 /**

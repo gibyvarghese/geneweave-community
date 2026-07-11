@@ -1547,6 +1547,17 @@ CREATE TABLE IF NOT EXISTS "live_attention_policies" (
   "enabled" BIGINT NOT NULL DEFAULT 1,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
@@ -1559,6 +1570,17 @@ CREATE TABLE IF NOT EXISTS "live_handler_kinds" (
   "enabled" BIGINT NOT NULL DEFAULT 1,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
@@ -1913,6 +1935,17 @@ CREATE TABLE IF NOT EXISTS "model_pricing" (
   "output_modality" TEXT NOT NULL DEFAULT 'text',
   "context_window_k" BIGINT,
   "max_output_tokens_k" BIGINT,
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
@@ -2594,6 +2627,17 @@ CREATE TABLE IF NOT EXISTS "provider_tool_adapters" (
   "enabled" BIGINT NOT NULL DEFAULT 1,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
@@ -2985,6 +3029,17 @@ CREATE TABLE IF NOT EXISTS "scaffold_templates" (
   "enabled" BIGINT NOT NULL DEFAULT 1,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
@@ -3313,6 +3368,17 @@ CREATE TABLE IF NOT EXISTS "task_type_definitions" (
   "enabled" BIGINT NOT NULL DEFAULT 1,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
@@ -4253,6 +4319,17 @@ CREATE TABLE IF NOT EXISTS "workflow_defs" (
   "enabled" BIGINT NOT NULL DEFAULT 1,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
