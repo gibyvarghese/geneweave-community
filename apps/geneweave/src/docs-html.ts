@@ -4425,6 +4425,8 @@ ${section('ten-share', 'Share down the org tree &amp; promote good ideas up', `
 </ul>
 
 ${callout('info', '🌳', 'Two engines, identical results.', 'All of this works byte-for-byte identically on SQLite (the community default) and Postgres — resolution lives in a portable adapter predicate + content hash, not in database-specific row-level-security. Content hashes are canonical + stable across both engines, so a fork\'s drift state and provenance are the same wherever you run.')}
+
+${callout('info', '🔒', 'A user can only belong to a tenant that exists.', 'The tenant a user is assigned to (<code>users.tenant_id</code>) is a real database foreign key to the tenants table, enforced on both SQLite and Postgres. So a user can never be pointed at a tenant that was never created — a mistaken assignment is rejected at write time with a clear error, not stored as a dangling reference. And if a tenant is ever removed, its users fall back to the global scope (their tenant becomes “none”) rather than being deleted or blocking the removal.')}
 `)}
 
 ${section('ten-govern', 'Governing the shared defaults — propose, pin, deprecate, reparent', `

@@ -742,4 +742,38 @@ describe.skipIf(!HAS_DOCKER)('pgSeedStore — seedDefaultData parity (real Postg
       }
     }
   });
+
+  it('Section G (m162): users.tenant_id has a FK to tenants(id) ON DELETE SET NULL, enforced on both engines', async () => {
+    // The FK reaches Postgres two ways: the generated schema (fresh DBs) and the idempotent ADD CONSTRAINT
+    // in seedDefaultData (existing DBs). Either way the constraint must exist and enforce.
+    const { rows: fk } = await pool.query(`
+      SELECT c.conname, confrel.relname AS ref_table, c.confdeltype
+      FROM pg_constraint c
+      JOIN pg_class confrel ON confrel.oid = c.confrelid
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+      WHERE c.conrelid = 'users'::regclass AND c.contype = 'f' AND a.attname = 'tenant_id'
+    `);
+    expect(fk.length, 'pg users.tenant_id FK exists').toBe(1);
+    expect((fk[0] as { ref_table: string }).ref_table).toBe('tenants');
+    expect((fk[0] as { confdeltype: string }).confdeltype).toBe('n'); // 'n' = SET NULL
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sqFk = ((sq as any).d.pragma('foreign_key_list(users)') as Array<{ table: string; from: string; on_delete: string }>)
+      .find((f) => f.table === 'tenants' && f.from === 'tenant_id');
+    expect(sqFk, 'sqlite users.tenant_id FK exists').toBeTruthy();
+    expect(sqFk!.on_delete).toBe('SET NULL');
+
+    // Enforcement + ON DELETE SET NULL on real Postgres.
+    await pool.query(`INSERT INTO tenants (id,name,parent_tenant_id,path,depth,status) VALUES ('g-real','g-real',NULL,'/g-real/',0,'active') ON CONFLICT (id) DO NOTHING`);
+    const uid = randomUUID();
+    await pool.query(`INSERT INTO users (id,email,name,persona,tenant_id,password_hash) VALUES ($1,$2,'u','tenant_user','g-real','h')`, [uid, `${uid}@g.co`]);
+    // a bogus tenant is rejected
+    await expect(pool.query(`INSERT INTO users (id,email,name,persona,tenant_id,password_hash) VALUES ($1,$2,'u','tenant_user','g-ghost','h')`, [randomUUID(), `x${uid}@g.co`]))
+      .rejects.toThrow(/foreign key/i);
+    // deleting the tenant nulls the user's tenant_id, does not delete the user
+    await pool.query(`DELETE FROM tenants WHERE id = 'g-real'`);
+    const { rows: after } = await pool.query(`SELECT tenant_id FROM users WHERE id = $1`, [uid]);
+    expect(after.length).toBe(1);
+    expect((after[0] as { tenant_id: string | null }).tenant_id).toBeNull();
+  });
 });

@@ -2489,6 +2489,32 @@ export function pgSeedStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       }
       await ctx.query(`UPDATE users SET tenant_id = NULL WHERE tenant_id = ''`);
 
+      // ─── Tenancy Realm Phase 0 completion (m162) — users.tenant_id FK on EXISTING Postgres DBs ───
+      // A fresh DB gets the FK from POSTGRES_FULL_SCHEMA (regenerated from the m162 SQLite rebuild), but
+      // `CREATE TABLE IF NOT EXISTS` never alters an already-created `users`. So add it here, idempotently:
+      // skip if any FK on users.tenant_id already exists, otherwise de-orphan (the backfill above already
+      // did, but be self-contained) and ADD CONSTRAINT. ON DELETE SET NULL matches the SQLite side.
+      await ctx.query(`
+        DO $do$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+            WHERE c.conrelid = 'users'::regclass AND c.contype = 'f' AND a.attname = 'tenant_id'
+          ) THEN
+            UPDATE users SET tenant_id = NULL WHERE tenant_id = '';
+            INSERT INTO tenants (id, name, parent_tenant_id, path, depth, status)
+              SELECT DISTINCT tenant_id, tenant_id, NULL, '/' || tenant_id || '/', 0, 'active'
+              FROM users
+              WHERE tenant_id IS NOT NULL AND tenant_id <> '' AND tenant_id NOT IN (SELECT id FROM tenants)
+              ON CONFLICT (id) DO NOTHING;
+            ALTER TABLE users ADD CONSTRAINT users_tenant_id_fkey
+              FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE SET NULL;
+          END IF;
+        END
+        $do$;
+      `);
+
       // ─── Tenancy Realm Phase 1 — classify seeded prompt config as global-realm originals ───
       // Mirrors the SQLite side (migration m151 + applyM151RealmColumns re-run in seedDefaultData).
       // The realm columns + unique indexes come from POSTGRES_FULL_SCHEMA; here we backfill

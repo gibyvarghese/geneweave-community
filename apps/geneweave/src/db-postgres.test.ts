@@ -138,6 +138,11 @@ describe.skipIf(!HAS_DOCKER)('Phase 1 — Postgres adapter (real Postgres)', () 
     pool.on('error', () => {}); // swallow idle-client disconnects (e.g. 57P01) at container teardown
     pg = createPostgresAdapter({ client: pool }) as unknown as DatabaseAdapterLike;
     await pg.initialize();
+    // users.tenant_id is a FK to tenants(id) (m162). initialize() applies the schema but does not seed
+    // tenants, so create the ones these tests assign users to before the users reference them.
+    for (const t of ['t1', 'tenant-42', 'tenant-A', 'tenant-B']) {
+      await pool.query(`INSERT INTO tenants (id,name,parent_tenant_id,path,depth,status) VALUES ($1,$1,NULL,'/'||$1||'/',0,'active') ON CONFLICT (id) DO NOTHING`, [t]);
+    }
   }, 180_000);
 
   afterAll(async () => {
@@ -187,6 +192,9 @@ describe.skipIf(!HAS_DOCKER)('Phase 1 — Postgres adapter (real Postgres)', () 
   it('parity: SQLite and Postgres return byte-identical rows for the same operations', async () => {
     const sq = tempSqlite();
     await sq.initialize();
+    // Mirror the pg-side tenant so this fresh SQLite DB satisfies the users.tenant_id FK too.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sq as any).d.prepare(`INSERT OR IGNORE INTO tenants (id,name,path,depth,status) VALUES ('tenant-42','tenant-42','/tenant-42/',0,'active')`).run();
     try {
       const uid = randomUUID();
       const user = { id: uid, email: `par-${uid}@x.co`, name: "O'Brien \"Ünïcode\"", passwordHash: 'p', persona: 'tenant_admin', tenantId: 'tenant-42', emailBidx: 'abc123' };
