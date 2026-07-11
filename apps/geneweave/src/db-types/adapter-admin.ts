@@ -224,4 +224,11 @@ export interface IAdminStore {
 
   // Seed data
   seedDefaultData(): Promise<void>;
+  /**
+   * Registry-wide realm seed reconcile (Upgrade Engine, L4). Publishes this release's shipped defaults for
+   * every realm family, adopts changed defaults the operator never touched, keeps customized/diverged
+   * rows, and records outcomes to upgrade_details under a persisted upgrade run. Optional so a partial or
+   * legacy adapter can omit it; applySeed calls it defensively. Returns the upgrade run's id.
+   */
+  seedReconcileRealm?(): Promise<{ runId: string }>;
 }

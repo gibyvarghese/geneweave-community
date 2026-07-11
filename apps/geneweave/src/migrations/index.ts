@@ -142,6 +142,7 @@ import { applyM159RealmColumnsPromptCatalog } from './m159-realm-columns-prompt-
 import { applyM160RealmGovernance } from './m160-realm-governance.js';
 import { applyM161RealmDiff } from './m161-realm-diff.js';
 import { applyM162UsersTenantFk } from './m162-users-tenant-fk.js';
+import { applyM163UpgradeLedger } from './m163-upgrade-ledger.js';
 import { applyEncryption } from './encryption.js';
 import { createMigrationRunner } from './helpers.js';
 
@@ -292,8 +293,14 @@ const bootstrapRunner = createMigrationRunner([
   { id: 'm160-realm-governance', description: 'Realm write-path & governance (Tenancy Realm Section D). Adds realm_proposals — the ProposeToRealm review queue: a tenant admin proposes that their fork become the global default, it lands pending, and only a PLATFORM admin may approve (which runs the promote) or reject. One pending proposal per fork (partial unique index). Also adds the deprecation lifecycle columns (deprecated_at, deprecation_note, superseded_by_id) to all 11 realm-enabled tables: a deprecated global default keeps resolving for tenants already on it (nothing breaks) but can no longer be freshly customized, and superseded_by_id points at its replacement. Deprecation is a GLOBAL lifecycle concern (a built-in retired for everyone) so it is a base column, not a per-tenant state overlay. Relabel + one new table, zero data movement. Idempotent. Postgres via regenerated schema', run: applyM160RealmGovernance },
   { id: 'm161-realm-diff', description: 'Covering index on realm_versions(family, logical_key, content_hash) so the drift diff/merge workbench (Tenancy Realm Section E) can fetch a diverged record BASE payload in one indexed lookup. A fork records what it forked from as origin_hash (a content hash), while the version log was indexed only by (family, logical_key, version) — so recovering BASE previously required a full history scan. Pure index, zero data movement. Idempotent. Postgres via regenerated schema', run: applyM161RealmDiff },
   { id: 'm162-users-tenant-fk', description: 'Tenancy Realm Phase 0 completion: FOREIGN KEY users.tenant_id -> tenants(id) ON DELETE SET NULL. The column existed since m01-m10 with no referential integrity; m150 already backfilled a tenants row per distinct users.tenant_id and normalised blanks to NULL, so this makes the invariant enforceable. SQLite cannot ALTER ADD CONSTRAINT, so users is rebuilt (create-new+copy+drop+rename) with foreign_keys=OFF (users has many inbound FKs from sessions/user_preferences/etc that must survive the drop), ids copied verbatim so inbound refs re-link, then a scoped foreign_key_check(users) proves the new FK before re-enabling enforcement. Idempotent (skips if the FK already exists; skips defensively if users has an unexpected column). Postgres gets the same FK via the regenerated schema (fresh DBs) + an idempotent ADD CONSTRAINT in db-postgres/seed.ts (existing DBs).', run: applyM162UsersTenantFk },
+  { id: 'm163-upgrade-ledger', description: 'geneWeave Upgrade Engine (L4 foundations): upgrade_runs + upgrade_details persistence. One upgrade_runs row per reconcile/preview/apply pass (mode, status, version span, summary-by-disposition, timing); one upgrade_details row per (family, logical_key) touched (disposition = ReconcileState plus adopted/published/auto_merged/conflict/deferred, a P1..P5 priority band, the three content hashes for the diff/merge workbench, and a resolution slot filled when a human or automation later decides it). The schema_migrations ledger itself is created and maintained by the migration runner, not a batch. Two new tables, zero data movement, idempotent. Postgres via regenerated schema', run: applyM163UpgradeLedger },
 ]);
 
 export function applySQLiteBootstrapMigrations(db: BetterSqlite3.Database): void {
-  bootstrapRunner.run(db);
+  // Ledgered boot: consult `schema_migrations`, skip batches already applied (same id+hash), record the
+  // rest. The first boot on any database (fresh or pre-ledger) records every batch — its statements are
+  // idempotent, so re-applying them once is a no-op — and every subsequent boot applies zero batches.
+  // Lenient (not strict): `safeExec` still tolerates already-applied statements, matching legacy boot;
+  // strict mode is reserved for upgrade runs.
+  bootstrapRunner.run(db, { ledgered: true });
 }
