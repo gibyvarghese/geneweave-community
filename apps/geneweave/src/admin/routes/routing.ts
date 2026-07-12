@@ -20,6 +20,7 @@ import {
   registerSkillRoutes,
   registerSkillGovernanceRoutes,
   registerRealmGovernanceRoutes,
+  registerUpgradeRoutes,
   registerWorkerAgentRoutes,
   registerSupervisorAgentRoutes,
   registerToolApprovalRequestRoutes,
@@ -136,6 +137,7 @@ export function registerAdminRoutingRoutes(
   registerSkillRoutes(router, db, adminHelpers);
   registerSkillGovernanceRoutes(router, db, adminHelpers);
   registerRealmGovernanceRoutes(router, db, adminHelpers);
+  registerUpgradeRoutes(router, db, adminHelpers);
   registerWorkerAgentRoutes(router, db, adminHelpers);
   registerSupervisorAgentRoutes(router, db, adminHelpers);
   registerToolApprovalRequestRoutes(router, db, adminHelpers);

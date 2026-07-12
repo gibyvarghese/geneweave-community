@@ -96,6 +96,42 @@ scheme when they were converged onto the standard pattern. Their content hash co
 fields (quality, capability flags, active state); the auto-updating production-telemetry signals are excluded,
 so a live install that's accumulating signals never reads as "drifted".
 
+## Checking for updates
+
+geneWeave can discover a new release, prove it's genuine, and decide whether it's actually for you — before
+anything is applied. A platform admin runs the check (`POST /api/admin/upgrade/check`); the most recent
+result is at `GET /api/admin/upgrade/status`.
+
+A release ships a **signed manifest** — its version, edition, expiry, and the four layers it changes. The
+check fetches the latest manifest from the release source (through the resilient HTTP pipeline), then trusts
+it only after it passes, in order, with a distinct reason for each failure:
+
+| check | rejected when |
+|---|---|
+| **signature** | not signed by a key you trust, or tampered (`untrusted_key` / `bad_signature`) |
+| **edition** | it's a release for a different edition (`edition_mismatch`) |
+| **freshness** | it's past its expiry (`expired`) |
+| **anti-rollback** | it's older than what you already have (`downgrade`) |
+
+Every check is recorded in `upgrade_releases` — an audit trail, and the **anti-rollback floor**: the highest
+version you've ever *accepted*. A later check is judged against `max(installed, that floor)`, so a replayed
+old-but-validly-signed manifest can never talk your instance into a downgrade. A rejected release is recorded
+but never raises the floor.
+
+Enable it with these environment variables (unset = the command reports `not_configured` and does nothing):
+
+| variable | meaning |
+|---|---|
+| `GENEWEAVE_UPGRADE_REPO` | the `owner/repo` GitHub releases are published to |
+| `GENEWEAVE_UPGRADE_TRUSTED_KEYS` | a PEM bundle of the Ed25519 public keys you trust to sign releases |
+| `GENEWEAVE_EDITION` | this instance's edition (default `community`) |
+| `GENEWEAVE_UPGRADE_ASSET` | the manifest asset's file name (default `manifest.json`) |
+| `GENEWEAVE_UPGRADE_TOKEN` / `GENEWEAVE_UPGRADE_TOKEN_CREDENTIAL_ID` | a bearer token for a **private** release repo — a vault credential id (preferred) or a plain token; used only in the `Authorization` header, never logged |
+
+The signing/verification, manifest schema, and release sources are the brand-neutral
+[`@weaveintel/upgrade`](https://www.npmjs.com/package/@weaveintel/upgrade) package; geneWeave supplies the
+persistence, the resilient HTTP, and the admin route.
+
 ## Safety: the migration ledger and pre-upgrade snapshots
 
 - **Migration ledger.** Schema migrations are recorded in a `schema_migrations` ledger as they apply, keyed
@@ -130,6 +166,9 @@ already know still apply and are respected by the reconcile:
 | run / detail persistence | `apps/geneweave/src/upgrade-run-store.ts` |
 | priority policy (family → band) | `apps/geneweave/src/upgrade-priority.ts` — wraps `bandFor` from `@weaveintel/upgrade` |
 | pre-upgrade snapshots | `apps/geneweave/src/upgrade-snapshot.ts` — re-exports from `@weaveintel/upgrade` |
+| release discovery + check | `apps/geneweave/src/upgrade-check.ts` — composes `@weaveintel/upgrade`'s `UpdateChecker` + resilient HTTP + vault token |
+| release audit + anti-rollback floor | `apps/geneweave/src/upgrade-release-store.ts`; `migrations/m169-upgrade-releases.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
+| admin check/status route | `apps/geneweave/src/admin/api/upgrade.ts` |
 | workflow node/edge merge | `apps/geneweave/src/workflow-merge.ts` — wraps `mergeKeyedList` from `@weaveintel/upgrade` |
 | migration ledger + strict mode | `apps/geneweave/src/migrations/helpers.ts` |
 | ledger + run tables | `apps/geneweave/src/migrations/m163-upgrade-ledger.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
