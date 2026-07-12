@@ -37,7 +37,7 @@ describe('Upgrade Engine — Phase 0b newly-registered families (real booted SQL
 
   it('all 7 new families are registered (18 total)', () => {
     for (const f of NEW_FAMILIES) expect(REALM_FAMILIES[f], `family ${f}`).toBeTruthy();
-    expect(Object.keys(REALM_FAMILIES).length).toBe(18);
+    expect(Object.keys(REALM_FAMILIES).length).toBe(19); // 11 original + 7 (0b) + model_capability_scores (m168)
   });
 
   it('each new family got its realm columns and its global rows are logical-keyed + content-hashed', () => {

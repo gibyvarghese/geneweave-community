@@ -1913,6 +1913,17 @@ CREATE TABLE IF NOT EXISTS "model_capability_scores" (
   "supports_computer_use" BIGINT NOT NULL DEFAULT 0,
   "supports_long_context" BIGINT NOT NULL DEFAULT 0,
   "supports_realtime_audio" BIGINT NOT NULL DEFAULT 0,
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT,
   PRIMARY KEY ("id")
 );
 
@@ -4624,8 +4635,9 @@ CREATE INDEX IF NOT EXISTS idx_mined_proposals_status ON mined_skill_proposals(s
 CREATE INDEX IF NOT EXISTS idx_mode_labels_surface ON mode_labels(surface_id);
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_mode_labels_surface_id_mode_key" ON "mode_labels" ("surface_id", "mode_key");
 CREATE INDEX IF NOT EXISTS idx_capability_model ON model_capability_scores(model_id, provider);
-CREATE INDEX IF NOT EXISTS idx_capability_lookup ON model_capability_scores(task_key, is_active, tenant_id);
-CREATE UNIQUE INDEX IF NOT EXISTS "uq_model_capability_scores_tenant_id_model_id_provider_task_" ON "model_capability_scores" ("tenant_id", "model_id", "provider", "task_key");
+CREATE INDEX IF NOT EXISTS idx_capability_lookup ON model_capability_scores(task_key, is_active, owner_tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_model_capability_scores_logical_owner ON model_capability_scores(logical_key, COALESCE(owner_tenant_id, ''));
+CREATE INDEX IF NOT EXISTS idx_model_capability_scores_deprecated ON model_capability_scores(deprecated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_model_pricing_model_id_provider" ON "model_pricing" ("model_id", "provider");
 CREATE INDEX IF NOT EXISTS idx_note_action_modes_tenant ON note_action_modes(tenant_id);
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_note_action_modes_tenant_id_action_key" ON "note_action_modes" ("tenant_id", "action_key");
