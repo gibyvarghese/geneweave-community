@@ -122,11 +122,14 @@ already know still apply and are respected by the reconcile:
 | registry-wide reconcile | `apps/geneweave/src/realm-seed-reconcile.ts` |
 | shipped defaults per family | `apps/geneweave/src/realm-seed-defaults.ts` |
 | run / detail persistence | `apps/geneweave/src/upgrade-run-store.ts` |
-| priority scorer | `apps/geneweave/src/upgrade-priority.ts` |
-| pre-upgrade snapshots | `apps/geneweave/src/upgrade-snapshot.ts` |
+| priority policy (family → band) | `apps/geneweave/src/upgrade-priority.ts` — wraps `bandFor` from `@weaveintel/upgrade` |
+| pre-upgrade snapshots | `apps/geneweave/src/upgrade-snapshot.ts` — re-exports from `@weaveintel/upgrade` |
+| workflow node/edge merge | `apps/geneweave/src/workflow-merge.ts` — wraps `mergeKeyedList` from `@weaveintel/upgrade` |
 | migration ledger + strict mode | `apps/geneweave/src/migrations/helpers.ts` |
 | ledger + run tables | `apps/geneweave/src/migrations/m163-upgrade-ledger.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
 
-The reconcile is driven entirely by the realm family registry (`realm-families.ts`): a family is covered
-for full stale-adoption as soon as its shipped defaults are listed in `realm-seed-defaults.ts`; every
-registered family is kept drift-ready with baselines regardless.
+The engine-generic primitives — priority banding, pre-upgrade snapshots, and the structured id-keyed merge
+— live in the framework package **`@weaveintel/upgrade`**; the app supplies the policy (which family maps to
+which band, which fields are id-keyed lists). The reconcile itself is driven by the realm family registry
+(`realm-families.ts`): a family is covered for full stale-adoption as soon as its shipped defaults are listed
+in `realm-seed-defaults.ts`; every registered family is kept drift-ready with baselines regardless.

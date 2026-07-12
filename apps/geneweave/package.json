@@ -57,6 +57,7 @@
     "@weaveintel/provider-llamacpp": "^0.1.1",
     "@weaveintel/provider-ollama": "^0.1.1",
     "@weaveintel/provider-openai": "^0.1.1",
+    "@weaveintel/realm": "^0.4.0",
     "@weaveintel/resilience": "^0.1.1",
     "@weaveintel/retrieval": "^0.1.1",
     "@weaveintel/routing": "^0.1.1",
@@ -69,12 +70,12 @@
     "@weaveintel/tools-enterprise": "^0.1.1",
     "@weaveintel/triggers": "^0.1.1",
     "@weaveintel/ui-primitives": "^0.1.1",
+    "@weaveintel/upgrade": "^0.1.0",
     "@weaveintel/voice": "^0.1.1",
     "@weaveintel/workflows": "^0.1.1",
     "better-sqlite3": "^11.9.1",
     "pg": "^8.13.0",
-    "redis": "^4.7.0",
-    "@weaveintel/realm": "^0.4.0"
+    "redis": "^4.7.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
