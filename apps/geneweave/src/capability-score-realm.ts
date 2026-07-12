@@ -18,9 +18,12 @@ type Wrapped = { _row: ModelCapabilityScoreRow };
 /** The per-cell logical key: one capability score per (provider, model, task). */
 const cellKey = (r: ModelCapabilityScoreRow): string => `${r.provider}::${r.model_id}::${r.task_key}`;
 
-/** Map a capability-score row into a realm record. `tenant_id IS NULL` → the global default. */
+/** Map a capability-score row into a realm record. NULL owner → the global default. Since m168, the
+ *  canonical owner is `owner_tenant_id` (kept in lockstep with the legacy `tenant_id`); fall back to
+ *  `tenant_id` for any row written before the converge migration ran. */
 function toRealmRecord(r: ModelCapabilityScoreRow): RealmRecord<Wrapped> {
-  const owner = r.tenant_id && r.tenant_id !== '' ? r.tenant_id : null;
+  const ownerRaw = r.owner_tenant_id ?? r.tenant_id;
+  const owner = ownerRaw && ownerRaw !== '' ? ownerRaw : null;
   return {
     id: r.id,
     realm: owner ? 'tenant' : 'global',
@@ -54,7 +57,7 @@ export function resolveTenantEffectiveCapabilityScores(
   tenantId: string | null | undefined,
   ctx?: RealmContext,
 ): ModelCapabilityScoreRow[] {
-  if (!tenantId) return allRows.filter((r) => r.tenant_id === null || r.tenant_id === '');
+  if (!tenantId) return allRows.filter((r) => { const o = r.owner_tenant_id ?? r.tenant_id; return o === null || o === ''; });
   if (allRows.length === 0) return [];
   const context: RealmContext = ctx ?? { tenantId, depth: 0, lineage: [{ tenantId, depth: 0 }] };
   return resolveEffective(allRows.map(toRealmRecord), context).map((e) => (e as unknown as Wrapped)._row);

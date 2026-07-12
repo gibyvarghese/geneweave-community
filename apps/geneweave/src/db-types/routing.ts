@@ -110,8 +110,17 @@ export interface TaskTypeDefinitionRow {
 
 export interface ModelCapabilityScoreRow {
   id: string;
-  /** NULL = global default; otherwise tenant-specific override. */
+  /**
+   * Legacy owner column, kept in lockstep with `owner_tenant_id` for back-compat. `owner_tenant_id` is the
+   * canonical realm owner now (m168 converged this table onto the standard realm pattern).
+   */
   tenant_id: string | null;
+  /** Canonical realm owner (NULL = global default; otherwise a tenant's own row). Mirrors `tenant_id`. */
+  owner_tenant_id?: string | null;
+  /** `'global'` (NULL owner) or `'tenant'`. */
+  realm?: string;
+  /** The `(provider, model, task)` cell key — the realm logical key. Stored by m168. */
+  logical_key?: string | null;
   model_id: string;
   provider: string;
   task_key: string;

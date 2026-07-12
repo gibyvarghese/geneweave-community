@@ -1891,8 +1891,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const vals: unknown[] = [];
     if (opts?.taskKey) { where.push('task_key = ?'); vals.push(opts.taskKey); }
     if (opts && 'tenantId' in opts) {
-      if (opts.tenantId === null) { where.push('tenant_id IS NULL'); }
-      else if (typeof opts.tenantId === 'string') { where.push('(tenant_id = ? OR tenant_id IS NULL)'); vals.push(opts.tenantId); }
+      // owner_tenant_id is the canonical owner (m168); COALESCE with tenant_id covers any row written
+      // before the converge migration ran.
+      if (opts.tenantId === null) { where.push(`COALESCE(owner_tenant_id, tenant_id) IS NULL`); }
+      else if (typeof opts.tenantId === 'string') { where.push('(COALESCE(owner_tenant_id, tenant_id) = ? OR COALESCE(owner_tenant_id, tenant_id) IS NULL)'); vals.push(opts.tenantId); }
     }
     if (opts?.modelId) { where.push('model_id = ?'); vals.push(opts.modelId); }
     if (opts?.provider) { where.push('provider = ?'); vals.push(opts.provider); }
@@ -1906,7 +1908,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const rows = (taskKey
       ? this.d.prepare('SELECT * FROM model_capability_scores WHERE task_key = ? ORDER BY task_key, provider, model_id').all(taskKey)
       : this.d.prepare('SELECT * FROM model_capability_scores ORDER BY task_key, provider, model_id').all()) as ModelCapabilityScoreRow[];
-    if (!tenantId) return rows.filter((r) => r.tenant_id === null || r.tenant_id === '');
+    if (!tenantId) return rows.filter((r) => { const o = r.owner_tenant_id ?? r.tenant_id; return o === null || o === ''; });
     if (rows.length === 0) return [];
     const ctx = await this.realmContext(tenantId);
     return resolveTenantEffectiveCapabilityScores(rows, tenantId, ctx);
@@ -2215,14 +2217,18 @@ export class SQLiteAdapter implements DatabaseAdapter {
   }
 
   async upsertCapabilityScore(row: Omit<ModelCapabilityScoreRow, 'created_at' | 'updated_at'>): Promise<void> {
+    // owner_tenant_id is the canonical realm owner (m168); tenant_id is kept in lockstep. logical_key is the
+    // (provider, model, task) cell. The conflict target is the realm unique (logical_key, owner_tenant_id).
+    const owner = row.tenant_id && row.tenant_id !== '' ? row.tenant_id : null;
+    const logicalKey = `${row.provider}::${row.model_id}::${row.task_key}`;
     this.d.prepare(
       `INSERT INTO model_capability_scores
-        (id, tenant_id, model_id, provider, task_key, quality_score,
+        (id, tenant_id, owner_tenant_id, realm, logical_key, model_id, provider, task_key, quality_score,
          supports_tools, supports_streaming, supports_thinking, supports_json_mode, supports_vision,
          max_output_tokens, benchmark_source, raw_benchmark_score, is_active, last_evaluated_at,
          production_signal_score, signal_sample_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(tenant_id, model_id, provider, task_key) DO UPDATE SET
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(logical_key, COALESCE(owner_tenant_id, '')) DO UPDATE SET
          quality_score = excluded.quality_score,
          supports_tools = excluded.supports_tools,
          supports_streaming = excluded.supports_streaming,
@@ -2236,7 +2242,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
          last_evaluated_at = excluded.last_evaluated_at,
          updated_at = datetime('now')`,
     ).run(
-      row.id, row.tenant_id ?? null, row.model_id, row.provider, row.task_key, row.quality_score,
+      row.id, owner, owner, owner ? 'tenant' : 'global', logicalKey,
+      row.model_id, row.provider, row.task_key, row.quality_score,
       row.supports_tools ?? 1, row.supports_streaming ?? 1, row.supports_thinking ?? 0,
       row.supports_json_mode ?? 0, row.supports_vision ?? 0,
       row.max_output_tokens ?? null, row.benchmark_source ?? null, row.raw_benchmark_score ?? null,

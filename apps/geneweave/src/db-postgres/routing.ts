@@ -235,8 +235,9 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const vals: unknown[] = [];
       if (opts?.taskKey) { where.push(`task_key = $${vals.length + 1}`); vals.push(opts.taskKey); }
       if (opts && 'tenantId' in opts) {
-        if (opts.tenantId === null) { where.push('tenant_id IS NULL'); }
-        else if (typeof opts.tenantId === 'string') { where.push(`(tenant_id = $${vals.length + 1} OR tenant_id IS NULL)`); vals.push(opts.tenantId); }
+        // owner_tenant_id is the canonical owner (m168); COALESCE with tenant_id covers pre-migration rows.
+        if (opts.tenantId === null) { where.push('COALESCE(owner_tenant_id, tenant_id) IS NULL'); }
+        else if (typeof opts.tenantId === 'string') { where.push(`(COALESCE(owner_tenant_id, tenant_id) = $${vals.length + 1} OR COALESCE(owner_tenant_id, tenant_id) IS NULL)`); vals.push(opts.tenantId); }
       }
       if (opts?.modelId) { where.push(`model_id = $${vals.length + 1}`); vals.push(opts.modelId); }
       if (opts?.provider) { where.push(`provider = $${vals.length + 1}`); vals.push(opts.provider); }
@@ -252,7 +253,7 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
         ? await ctx.query('SELECT * FROM model_capability_scores WHERE task_key = $1', [taskKey])
         : await ctx.query('SELECT * FROM model_capability_scores', []);
       const all = rows as unknown as ModelCapabilityScoreRow[];
-      if (!tenantId) return all.filter((r) => r.tenant_id === null || r.tenant_id === '');
+      if (!tenantId) return all.filter((r) => { const o = r.owner_tenant_id ?? r.tenant_id; return o === null || o === ''; });
       if (all.length === 0) return [];
       const context = await buildTenantContext(ctx as unknown as SqlClient, 'postgres', tenantId);
       return resolveEffectiveCapabilityScores(all, tenantId, context);
@@ -264,14 +265,18 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
     },
 
     async upsertCapabilityScore(row: Omit<ModelCapabilityScoreRow, 'created_at' | 'updated_at'>): Promise<void> {
+      // owner_tenant_id is the canonical realm owner (m168); tenant_id kept in lockstep. Conflict target is
+      // the realm unique (logical_key, owner_tenant_id).
+      const owner = row.tenant_id && row.tenant_id !== '' ? row.tenant_id : null;
+      const logicalKey = `${row.provider}::${row.model_id}::${row.task_key}`;
       await ctx.query(
         `INSERT INTO model_capability_scores
-          (id, tenant_id, model_id, provider, task_key, quality_score,
+          (id, tenant_id, owner_tenant_id, realm, logical_key, model_id, provider, task_key, quality_score,
            supports_tools, supports_streaming, supports_thinking, supports_json_mode, supports_vision,
            max_output_tokens, benchmark_source, raw_benchmark_score, is_active, last_evaluated_at,
            production_signal_score, signal_sample_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-         ON CONFLICT(tenant_id, model_id, provider, task_key) DO UPDATE SET
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+         ON CONFLICT(logical_key, COALESCE(owner_tenant_id, '')) DO UPDATE SET
            quality_score = excluded.quality_score,
            supports_tools = excluded.supports_tools,
            supports_streaming = excluded.supports_streaming,
@@ -285,7 +290,8 @@ export function pgRoutingStore(ctx: PgCtx): Partial<DatabaseAdapter> {
            last_evaluated_at = excluded.last_evaluated_at,
            updated_at = ${ctx.now}`,
         [
-          row.id, row.tenant_id ?? null, row.model_id, row.provider, row.task_key, row.quality_score,
+          row.id, owner, owner, owner ? 'tenant' : 'global', logicalKey,
+          row.model_id, row.provider, row.task_key, row.quality_score,
           row.supports_tools ?? 1, row.supports_streaming ?? 1, row.supports_thinking ?? 0,
           row.supports_json_mode ?? 0, row.supports_vision ?? 0,
           row.max_output_tokens ?? null, row.benchmark_source ?? null, row.raw_benchmark_score ?? null,

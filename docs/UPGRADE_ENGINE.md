@@ -86,9 +86,15 @@ applied to each node instead of the whole field.
 
 The reconcile covers every built-in family the product ships — prompts, skills, guardrails, tool/routing/cost
 policies, prompt strategies/contracts/frameworks/fragments, worker agents, workflows, the model catalog
-(pricing, task types, provider tool adapters), the live-agent registries (handler kinds, attention policies),
-and scaffold templates. Registering a family is additive: it gets the standard realm columns and joins the
-reconcile automatically.
+(pricing, task types, provider tool adapters, **model capability scores**), the live-agent registries
+(handler kinds, attention policies), and scaffold templates. Registering a family is additive: it gets the
+standard realm columns and joins the reconcile automatically.
+
+Capability scores are the one family that keys on a **composite cell** — `(provider, model, task)` — rather
+than a single natural key, and their owner column (`owner_tenant_id`) replaced an older `tenant_id`-based
+scheme when they were converged onto the standard pattern. Their content hash covers only the *shipped* config
+fields (quality, capability flags, active state); the auto-updating production-telemetry signals are excluded,
+so a live install that's accumulating signals never reads as "drifted".
 
 ## Safety: the migration ledger and pre-upgrade snapshots
 

@@ -23,6 +23,7 @@ import { WORKFLOW_SEMANTIC_COLS } from './migrations/m164-realm-columns-workflow
 import { MODEL_PRICING_SEMANTIC_COLS, TASK_TYPE_SEMANTIC_COLS, PROVIDER_TOOL_ADAPTER_SEMANTIC_COLS } from './migrations/m165-realm-columns-model-catalog.js';
 import { LIVE_HANDLER_KIND_SEMANTIC_COLS, LIVE_ATTENTION_POLICY_SEMANTIC_COLS } from './migrations/m166-realm-columns-live-registries.js';
 import { SCAFFOLD_TEMPLATE_SEMANTIC_COLS } from './migrations/m167-realm-columns-templates.js';
+import { CAPABILITY_SCORE_SEMANTIC_COLS } from './migrations/m168-realm-columns-capability-scores.js';
 
 /**
  * How a family derives the logical key from a row: the NAME OF THE COLUMN the logical key falls back to
@@ -42,7 +43,18 @@ export interface RealmFamilySpec {
   readonly semanticCols: readonly string[];
   /** Fallback for logical_key when the column is empty. */
   readonly logicalKeyFrom: LogicalKeySource;
+  /**
+   * How to COMPUTE the logical key from a row when it isn't stored (a shipped default row has no
+   * `logical_key` column yet). Needed for a COMPOSITE key — a capability score's `(provider, model, task)`
+   * cell — where no single column is the key. The migration stores the same value in `logical_key` for
+   * real rows, so this only fires for in-memory default rows during reconcile. Omit for single-key families.
+   */
+  readonly computeLogicalKey?: (row: Record<string, unknown>) => string;
 }
+
+/** The composite cell key a capability score keys on: provider::model_id::task_key. */
+export const capabilityCellKey = (row: Record<string, unknown>): string =>
+  `${String(row['provider'] ?? '')}::${String(row['model_id'] ?? '')}::${String(row['task_key'] ?? '')}`;
 
 /** Every realm-enabled family, keyed by its `family` string. */
 export const REALM_FAMILIES: Readonly<Record<string, RealmFamilySpec>> = Object.freeze({
@@ -67,10 +79,11 @@ export const REALM_FAMILIES: Readonly<Record<string, RealmFamilySpec>> = Object.
   live_handler_kinds:     { family: 'live_handler_kinds',     table: 'live_handler_kinds',      semanticCols: LIVE_HANDLER_KIND_SEMANTIC_COLS,      logicalKeyFrom: 'kind'     },
   live_attention_policies:{ family: 'live_attention_policies',table: 'live_attention_policies', semanticCols: LIVE_ATTENTION_POLICY_SEMANTIC_COLS,  logicalKeyFrom: 'key'      },
   scaffold_templates:     { family: 'scaffold_templates',     table: 'scaffold_templates',      semanticCols: SCAFFOLD_TEMPLATE_SEMANTIC_COLS,      logicalKeyFrom: 'name'     },
-  // NB model_capability_scores is intentionally NOT registered here: it already carries a tenant_id owner
-  // and a bespoke resolver (capability-score-realm.ts) keyed on (provider, model_id, task_key). Folding it
-  // onto the standard owner_tenant_id + single-logical-key pattern is a resolver-convergence change tracked
-  // separately, not a mechanical registration.
+  // model_capability_scores converged onto the standard pattern (m168): owner_tenant_id is the canonical
+  // owner; the logical key is the COMPOSITE (provider, model, task) cell — computeLogicalKey builds it for
+  // default rows, the migration stores it for real rows. Semantic cols are the CONFIG fields only (the
+  // auto-updating production signals are excluded so a live install doesn't perpetually read as drifted).
+  model_capability_scores: { family: 'model_capability_scores', table: 'model_capability_scores', semanticCols: CAPABILITY_SCORE_SEMANTIC_COLS, logicalKeyFrom: 'id', computeLogicalKey: capabilityCellKey },
 });
 
 /**
@@ -86,10 +99,12 @@ export function realmFamily(family: string): RealmFamilySpec {
   return REALM_FAMILIES[family]!;
 }
 
-/** The logical key of a row in `spec`'s family — the stored column, else the family's fallback source. */
+/** The logical key of a row in `spec`'s family — the stored column, else a computed/composite key, else
+ *  the family's fallback source column. */
 export function logicalKeyOfRow(spec: RealmFamilySpec, row: Record<string, unknown>): string {
   const stored = row['logical_key'];
   if (typeof stored === 'string' && stored !== '') return stored;
+  if (spec.computeLogicalKey) return spec.computeLogicalKey(row);
   const fallback = row[spec.logicalKeyFrom];
   return String(fallback ?? row['id'] ?? '');
 }
