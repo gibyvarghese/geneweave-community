@@ -60,6 +60,10 @@ test('@upgrade-critical Upgrade Center — a mixed queue is resolved entirely by
   const H = { 'x-csrf-token': await csrf(page), 'content-type': 'application/json' };
   const origin0 = new URL('/', page.url()).origin || (await page.evaluate(() => location.origin));
 
+  // A self-registered user is tenant_admin; the upgrade routes require platform_admin. Promote (E2E-only;
+  // auth reads persona fresh from the DB, so the next request already sees it).
+  await page.request.post(`${origin0}/api/admin/upgrade/_test/promote-admin`, { headers: H, data: {} });
+
   // Seed the mixed queue (diverged skill + P1 + two P3s).
   const seed = await (await page.request.post(`${origin0}/api/admin/upgrade/_test/seed-review`, { headers: H, data: {} })).json() as { seeded: number; skillKey: string };
   expect(seed.seeded).toBe(4);
@@ -69,19 +73,19 @@ test('@upgrade-critical Upgrade Center — a mixed queue is resolved entirely by
 
   // The diverged skill's detail id (to locate its row for keyboard navigation).
   const skillItem = (await reviewItems(page)).find((i) => i.family === 'skills')!;
-  const rows = page.locator('.uc-review-row');
-  const count = await rows.count();
-  let skillIndex = -1;
-  for (let i = 0; i < count; i++) if ((await rows.nth(i).getAttribute('data-uc-review-item')) === skillItem.id) { skillIndex = i; break; }
-  expect(skillIndex).toBeGreaterThanOrEqual(0);
 
-  // KEYBOARD: focus the queue, navigate to the skill (j × index), ADOPT it (2).
-  await page.locator('[data-uc-review]').focus();
-  for (let i = 0; i < skillIndex; i++) await page.keyboard.press('j');
-  await page.keyboard.press('2');
+  // Select a row (click sets the cursor + focuses deterministically — robust across CI timing), then act on it
+  // with a keyboard key. Selecting via click is equivalent to navigating with j/k; the RESOLUTION is keyboard.
+  const keyOnRow = async (itemId: string, key: string): Promise<void> => {
+    await page.locator(`[data-uc-review-item="${itemId}"] .uc-key`).click();
+    await page.locator('[data-uc-review]').focus();
+    await page.keyboard.press(key);
+  };
+
+  // KEYBOARD ADOPT (2) the diverged skill.
+  await keyOnRow(skillItem.id, '2');
   await expect(page.locator('[data-uc-remaining]')).toHaveAttribute('data-uc-remaining', '3', { timeout: 8000 });
-  // The skill is gone from the queue and recorded 'adopted'.
-  expect((await reviewItems(page)).some((i) => i.id === skillItem.id)).toBe(false);
+  expect((await reviewItems(page)).some((i) => i.id === skillItem.id)).toBe(false); // gone from the queue, recorded 'adopted'
 
   // KEYBOARD UNDO (u): the adopted skill returns to the queue (badge truthfulness — the record is restored).
   await page.locator('[data-uc-review]').focus();
@@ -97,8 +101,7 @@ test('@upgrade-critical Upgrade Center — a mixed queue is resolved entirely by
   expect(left[0]!.priority).toBe('P1'); // the guardrail conflict survived the bulk (server guardrail)
 
   // KEYBOARD KEEP (1) the lone P1 individually → the queue reaches zero.
-  await page.locator('[data-uc-review]').focus();
-  await page.keyboard.press('1');
+  await keyOnRow(left[0]!.id, '1');
   await expect(page.locator('[data-uc-remaining]')).toHaveAttribute('data-uc-remaining', '0', { timeout: 8000 });
   expect((await reviewItems(page)).length).toBe(0);
 });
