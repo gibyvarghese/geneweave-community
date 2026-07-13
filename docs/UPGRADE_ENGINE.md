@@ -294,9 +294,22 @@ mergetool — the git-native path.
 The walk is confined to the tree root and never follows a symlink, so a hostile baseline can't read outside the
 scan root. **Scale:** hashing a 10,000-file tree takes ~0.2 s; the review resolution path sustains ~30k
 resolves/s with 1,000 concurrent resolves finishing in tens of milliseconds (p99 ≈ 31 ms) with no lost updates,
-and concurrent resolves of the same item are idempotent. (In-app CodeMirror merge view, git branch
-checkout/import round-trip, and the Private edition's patch-file lifecycle are the deploy/editor-side pieces that
-sit on this data; the status, classification, and diff3 merge are in-app.)
+and concurrent resolves of the same item are idempotent.
+
+### Resolving code conflicts
+
+There are two ways to resolve a both-changed file, matching the two editions:
+
+- **Git round-trip (Community).** The engine writes the conflict-marked files onto a fresh `upgrade/v<target>`
+  git branch; you resolve them in any editor, mergetool, or PR — nothing geneWeave-specific — and the engine
+  imports the resolved content back. A file that still carries conflict markers on the branch keeps L3 blocked.
+- **Patch reapply (Private/locked).** The vendor tree is swapped wholesale, and your customizations live as
+  sanctioned patch files that reapply on top of the new tree. Reapply is a real three-way merge (baseline, your
+  edit, new vendor), so a patch whose lines the vendor also changed becomes a conflict in the review queue (a
+  P1) — never silently dropped, and your edit is never silently lost.
+
+The one deploy/editor-side piece not yet wired is the **in-app** CodeMirror merge view (a convenience over the
+git branch above); the git round-trip is the primary "resolve anywhere" mechanism.
 
 ## Safety: the migration ledger and pre-upgrade snapshots
 
@@ -343,6 +356,8 @@ already know still apply and are respected by the reconcile:
 | needs-attention report (drift + version lag) | `apps/geneweave/src/upgrade-attention.ts` |
 | L2 code baselines + scanner + diff3 merge | `apps/geneweave/src/source-baselines.ts`, `code-scan.ts` (uses `node-diff3`) |
 | L2 code baseline store + scan orchestration | `apps/geneweave/src/code-baseline-store.ts`; baseline table `migrations/m174-upgrade-code-baseline.ts` |
+| L2 git round-trip (checkout/import) | `apps/geneweave/src/code-git.ts` |
+| L2 Private patch reapply | `apps/geneweave/src/code-patch.ts` |
 | per-node workflow merge | `apps/geneweave/src/workflow-merge.ts`, wired into `realm-diff.ts` (`applyRealmMerge`/`loadThreeWayDiff`) |
 | Upgrade Center screen | `apps/geneweave-ui/src/ui/upgrade-center-ui.ts` (customView `upgrade-center`); composes `realm-ui.ts` badges + diff |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
