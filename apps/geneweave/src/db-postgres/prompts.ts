@@ -221,6 +221,8 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const { getAppVersion } = await import('../upgrade-check.js');
       const { POSTGRES_FULL_SCHEMA } = await import('../db-postgres-schema.js');
       const { snapshotPgDump } = await import('../upgrade-snapshot.js');
+      const { verifyUpgrade } = await import('../upgrade-verify.js');
+      const { rmSync } = await import('node:fs');
       const connStr = process.env['DATABASE_URL'];
       const noopSnapshot = { ref: '', restore: async () => {}, discard: async () => {} };
       return applyUpgrade({
@@ -237,7 +239,27 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
         // Postgres L3 = re-apply the declarative schema (idempotent). Deferral (SQLite batch-level) does not apply.
         runSchema: async () => { await client.query(POSTGRES_FULL_SCHEMA); return { applied: ['postgres-schema'], skipped: [] }; },
         rollback: async (handle) => { await handle.restore(); }, // psql replay; the pool connection is unaffected
+        verify: (deferred) => verifyUpgrade(client, 'postgres', {
+          manifest: target.manifest, deferredBatchIds: deferred.batchIds, deferredFamilies: deferred.families,
+        }),
+        discardSnapshot: async (ref) => { if (ref) { try { rmSync(ref, { force: true }); } catch { /* already gone */ } } },
       });
+    },
+
+    /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
+    async runUpgradeRollback(runId: string) {
+      const client = ctx as unknown as SqlClient;
+      const { rollbackUpgradeRun } = await import('../upgrade-rollback.js');
+      const { rmSync } = await import('node:fs');
+      const { execFileSync } = await import('node:child_process');
+      const connStr = process.env['DATABASE_URL'];
+      return rollbackUpgradeRun({
+        client: () => client,
+        dialect: 'postgres',
+        // Replay the retained dump with psql (the pool connection is unaffected — no reconnect needed).
+        restoreFromRef: async (ref) => { if (connStr && ref) execFileSync('psql', ['--quiet', '--file', ref, connStr], { stdio: 'pipe' }); },
+        discardSnapshot: async (ref) => { if (ref) { try { rmSync(ref, { force: true }); } catch { /* already gone */ } } },
+      }, runId);
     },
 
     async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {

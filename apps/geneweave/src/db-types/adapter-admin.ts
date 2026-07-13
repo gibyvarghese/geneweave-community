@@ -239,6 +239,8 @@ export interface IAdminStore {
   runUpgradePreflight?(): Promise<import('../upgrade-preflight.js').PreflightResult | { status: 'no_release' }>;
   /** Upgrade Engine — read-only four-layer preview of the latest accepted release (or `{status:'no_release'}`). */
   runUpgradePreview?(): Promise<import('../upgrade-preview.js').UpgradePreview | { status: 'no_release' }>;
-  /** Upgrade Engine — APPLY the latest accepted release (L1→L4, snapshot+rollback), or `{status:'no_release'}`. */
+  /** Upgrade Engine — APPLY the latest accepted release (L1→L4, snapshot+verify+rollback), or `{status:'no_release'}`. */
   runUpgradeApply?(opts?: { force?: boolean; unresolvedCodePaths?: string[] }): Promise<import('../upgrade-apply.js').ApplyResult | { status: 'no_release' }>;
+  /** Upgrade Engine — MANUAL rollback of a run to its retained pre-upgrade snapshot (`rollback --run <id>`). */
+  runUpgradeRollback?(runId: string): Promise<import('../upgrade-rollback.js').RollbackResult>;
 }

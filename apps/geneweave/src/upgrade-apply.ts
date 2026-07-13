@@ -32,8 +32,10 @@ import { runPreflight, type PreflightResult } from './upgrade-preflight.js';
 import { setMaintenance, clearMaintenance } from './upgrade-maintenance.js';
 import {
   beginUpgradeRun, recordUpgradeDetail, finishUpgradeRun, latestUpgradeRun,
+  setRunSnapshotRef, listRetainedSnapshots,
 } from './upgrade-run-store.js';
 import { reconcileAllRealmFamilies, type RealmSeedDefaults } from './realm-seed-reconcile.js';
+import type { VerifyResult } from './upgrade-verify.js';
 
 /** The L2 handling mode, selected by edition (Community merges; Private swaps a locked tree). */
 export type EditionL2Mode = 'merge' | 'locked';
@@ -117,6 +119,14 @@ export interface ApplyContext {
   readonly runSchema: (deferredBatchIds: ReadonlySet<string>) => Promise<{ applied: string[]; skipped: string[] }>;
   /** Restore from a snapshot after an L3 failure (+ reopen the SQLite connection); afterwards `client()` is fresh. */
   readonly rollback: (handle: SnapshotHandle) => Promise<void>;
+  /**
+   * Post-apply VERIFY (readiness + manifest invariants + optional `@upgrade-critical`). Runs after L4 with the
+   * deferral sets so held batches/families aren't asserted; a failing result triggers an UNATTENDED restore of
+   * the snapshot and finishes the run `rolled_back`. Omit to skip verification (apply always keeps its result).
+   */
+  readonly verify?: (deferred: { batchIds: ReadonlySet<string>; families: ReadonlySet<string> }) => Promise<VerifyResult>;
+  /** Discard a retained snapshot by its ref (bounded retention — old snapshots are dropped). Defaults to a no-op. */
+  readonly discardSnapshot?: (ref: string) => Promise<void>;
   /** Optional installed-version reader for preflight's package gate (tests). */
   readonly readInstalledPackageVersion?: (name: string) => string | null;
   /** Timestamp override for run/detail rows (tests / deterministic replay). */
@@ -136,6 +146,8 @@ export interface ApplyResult {
   /** Count of unresolved review items left behind (⇒ succeeded_with_pending). */
   readonly pending?: number;
   readonly preflight?: PreflightResult;
+  /** The post-apply verify result (present when verify ran). A failing verify ⇒ status `rolled_back`. */
+  readonly verify?: VerifyResult;
   readonly error?: string;
 }
 
@@ -208,8 +220,10 @@ export async function applyUpgrade(ctx: ApplyContext): Promise<ApplyResult> {
       }
     }
 
-    // 6. Snapshot — taken AFTER the run row exists so a restore keeps it (we then mark it rolled_back).
+    // 6. Snapshot — taken AFTER the run row exists so a restore keeps it (we then mark it rolled_back). Its
+    //    path is recorded on the run so a SUCCESSFUL apply that later proves bad can still be rolled back.
     const handle = ctx.snapshot();
+    await setRunSnapshotRef(ctx.client(), dialect, runId, handle.ref);
 
     // 7. L3 — the pending, non-deferred schema batches, strict (a failure throws → restore).
     let applied: string[];
@@ -219,6 +233,7 @@ export async function applyUpgrade(ctx: ApplyContext): Promise<ApplyResult> {
     } catch (err) {
       await ctx.rollback(handle);              // restore the pre-L3 snapshot (+ reopen the SQLite connection)
       await clearMaintenance(ctx.client(), dialect);
+      await setRunSnapshotRef(ctx.client(), dialect, runId, null); // snapshot consumed by the restore
       await finishUpgradeRun(ctx.client(), dialect, runId, { status: 'rolled_back', summary: { error: 1 }, at });
       await handle.discard();
       return { status: 'rolled_back', runId, error: (err as Error).message };
@@ -242,10 +257,31 @@ export async function applyUpgrade(ctx: ApplyContext): Promise<ApplyResult> {
       }
     }
 
-    // 9. Maintenance OFF.
+    // 9. VERIFY — the post-apply health gate. A failure triggers an UNATTENDED restore of the snapshot: the
+    //    instance goes back to exactly where it was, the run is marked rolled_back, and a P1 audit item is
+    //    filed so the failure is visible and blocks the next apply until acknowledged.
+    let verify: VerifyResult | undefined;
+    if (ctx.verify) {
+      verify = await ctx.verify({ batchIds: deferredBatchIds, families: deferredFamilies });
+      if (!verify.ok) {
+        await ctx.rollback(handle);                       // restore (+ reopen the SQLite connection)
+        await clearMaintenance(ctx.client(), dialect);
+        const failed = verify.checks.filter((c) => !c.ok).map((c) => c.name).join(', ');
+        await recordUpgradeDetail(ctx.client(), dialect, runId, {
+          family: 'verify', logicalKey: 'post-apply', layer: 'verify', disposition: 'conflict', // conflict ⇒ P1
+          note: `verify failed, rolled back: ${failed}`, priority: 'P1',
+        });
+        await setRunSnapshotRef(ctx.client(), dialect, runId, null); // snapshot consumed by the restore
+        await finishUpgradeRun(ctx.client(), dialect, runId, { status: 'rolled_back', summary: { verifyFailed: 1 }, at });
+        await handle.discard();
+        return { status: 'rolled_back', runId, resumed: resuming, verify, error: `verification failed: ${failed}` };
+      }
+    }
+
+    // 10. Maintenance OFF.
     await clearMaintenance(ctx.client(), dialect);
 
-    // 10. Finalize — item-granular: any unresolved review item ⇒ succeeded_with_pending (never a hostage-taker).
+    // 11. Finalize — item-granular: any unresolved review item ⇒ succeeded_with_pending (never a hostage-taker).
     const pending = await countPendingReview(ctx.client(), dialect, runId);
     const status = pending > 0 ? 'succeeded_with_pending' : 'succeeded';
     const content = {
@@ -258,8 +294,15 @@ export async function applyUpgrade(ctx: ApplyContext): Promise<ApplyResult> {
       summary: { schemaApplied: applied.length, schemaDeferred: deferredBatchIds.size, contentAdopted: content.adopted, pending },
       at,
     });
-    await handle.discard();
-    return { status, runId, resumed: resuming, schema: { applied, deferred: [...deferredBatchIds] }, content, pending };
+    // 12. RETAIN this run's snapshot (so it can be rolled back on demand) and discard every OLDER retained
+    //     snapshot — bounded retention keeps at most one, the newest successful apply's.
+    if (ctx.discardSnapshot) {
+      for (const prior of await listRetainedSnapshots(ctx.client(), dialect, runId)) {
+        await ctx.discardSnapshot(prior.snapshot_ref);
+        await setRunSnapshotRef(ctx.client(), dialect, prior.id, null);
+      }
+    }
+    return { status, runId, resumed: resuming, schema: { applied, deferred: [...deferredBatchIds] }, content, pending, ...(verify ? { verify } : {}) };
   } finally {
     // Release via the CURRENT client (fresh after any rollback-reopen).
     await releaseUpgradeLock(ctx.client(), dialect, APPLY_LOCK_HOLDER);

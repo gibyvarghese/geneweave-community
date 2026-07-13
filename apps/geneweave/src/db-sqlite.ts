@@ -1138,7 +1138,8 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const { runUpgradeMigrations } = await import('./migrations/index.js');
     const { collectRealmSeedDefaults } = await import('./realm-seed-defaults.js');
     const { getAppVersion } = await import('./upgrade-check.js');
-    const BetterSqlite3 = (await import('better-sqlite3')).default;
+    const { verifyUpgrade } = await import('./upgrade-verify.js');
+    const { rmSync } = await import('node:fs');
     return applyUpgrade({
       client: () => sqliteSqlClient(this.d),
       dialect: 'sqlite',
@@ -1151,16 +1152,49 @@ export class SQLiteAdapter implements DatabaseAdapter {
       ...(opts.force ? { force: true } : {}),
       snapshot: () => snapshotSqliteFile(this.d, this.path, { label: 'apply' }),
       runSchema: async (deferred) => runUpgradeMigrations(this.d, { excludeIds: deferred }),
-      rollback: async (handle) => {
-        // SQLite restore overwrites the DB file — the write connection MUST be closed first, then reopened.
-        this.db?.close();
-        await handle.restore();
-        this.db = new BetterSqlite3(this.path);
-        this.db.pragma('journal_mode = WAL');
-        this.db.pragma('foreign_keys = ON');
-        this.encStore = new SqliteEncryptionStore(this.db);
-      },
+      rollback: async (handle) => this.restoreSqliteAndReopen(handle.ref),
+      // Post-apply verify: readiness + manifest invariants (the @upgrade-critical external hook is left
+      // unwired here — an operator supplies it out of band; absent means those checks are simply skipped).
+      verify: (deferred) => verifyUpgrade(sqliteSqlClient(this.d), 'sqlite', {
+        manifest: target.manifest, deferredBatchIds: deferred.batchIds, deferredFamilies: deferred.families,
+      }),
+      discardSnapshot: async (ref) => { try { rmSync(ref, { force: true }); } catch { /* already gone */ } },
     });
+  }
+
+  /**
+   * Upgrade Engine — MANUAL rollback of a run to its retained pre-upgrade snapshot (`rollback --run <id>`).
+   * @param runId the run to reverse.
+   * @returns the rollback result (rolled_back / not_found / no_snapshot / busy).
+   */
+  async runUpgradeRollback(runId: string): Promise<import('./upgrade-rollback.js').RollbackResult> {
+    const { rollbackUpgradeRun } = await import('./upgrade-rollback.js');
+    const { rmSync } = await import('node:fs');
+    return rollbackUpgradeRun({
+      client: () => sqliteSqlClient(this.d),
+      dialect: 'sqlite',
+      restoreFromRef: (ref) => this.restoreSqliteAndReopen(ref),
+      discardSnapshot: async (ref) => { try { rmSync(ref, { force: true }); } catch { /* already gone */ } },
+    }, runId);
+  }
+
+  /**
+   * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply
+   * orchestrator's auto-rollback and the manual rollback — a SQLite file restore overwrites the DB, so the
+   * write connection MUST be closed first, the file copied, then a fresh connection opened (re-pragma'd, with
+   * a rebuilt encryption store bound to it).
+   * @param ref the snapshot artifact path to copy back over the live DB file.
+   * @returns nothing. Side effects: closes + reopens `this.db`; rebuilds `this.encStore`.
+   */
+  private async restoreSqliteAndReopen(ref: string): Promise<void> {
+    const { copyFileSync } = await import('node:fs');
+    const BetterSqlite3 = (await import('better-sqlite3')).default;
+    this.db?.close();
+    copyFileSync(ref, this.path);
+    this.db = new BetterSqlite3(this.path);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
+    this.encStore = new SqliteEncryptionStore(this.db);
   }
 
   async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
