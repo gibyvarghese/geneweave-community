@@ -213,6 +213,15 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
   // TEST-ONLY: seed a mixed review queue for the Upgrade Center E2E. Registered only under PLAYWRIGHT_E2E so
   // it can never exist in production.
   if (process.env['PLAYWRIGHT_E2E'] === '1') {
+    // Promote the current user to platform_admin so the E2E can drive the platform-admin-gated upgrade routes
+    // (a self-registered user is only tenant_user/tenant_admin; auth reads persona fresh from the DB, so no
+    // re-login is needed). Requires authentication but NOT platform_admin — that's what it grants.
+    router.post('/api/admin/upgrade/_test/promote-admin', async (_req, res, _params, auth) => {
+      if (!auth) { json(res, 401, { error: 'Not authenticated' }); return; }
+      if (typeof db.updateUserPersona !== 'function') { json(res, 501, { error: 'not supported by this adapter' }); return; }
+      await db.updateUserPersona(auth.userId, 'platform_admin');
+      json(res, 200, { ok: true, persona: 'platform_admin' });
+    });
     router.post('/api/admin/upgrade/_test/seed-review', async (_req, res, _params, auth) => {
       if (!requirePlatformAdmin(res, auth)) return;
       if (typeof db.seedUpgradeReviewFixture !== 'function') { json(res, 501, { error: 'fixture not supported by this adapter' }); return; }

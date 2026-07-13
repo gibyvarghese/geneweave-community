@@ -176,12 +176,19 @@ function renderReview(render: () => void): HTMLElement {
       ? [h('div', { className: 'uc-empty' }, 'Nothing to review.')]
       : (q!.items.map((it, i) => renderReviewRow(it, i, render)))),
   );
+  // Move the cursor highlight IN PLACE (no full re-render), so the container keeps focus — a full rebuild on
+  // every keystroke drops focus until an async refocus, which races rapid key presses.
+  const moveCursor = (delta: number): void => {
+    const n = S.queue?.items.length ?? 0;
+    S.cursor = Math.max(0, Math.min(n - 1, S.cursor + delta));
+    section.querySelectorAll('.uc-review-row').forEach((el, i) => (el as HTMLElement).classList.toggle('is-cursor', i === S.cursor));
+  };
   // Keyboard model: j/k move the cursor, 1/2/d act on it, u undoes. Keys not handled fall through.
   section.addEventListener('keydown', (e: KeyboardEvent) => {
     const n = S.queue?.items.length ?? 0;
     if (n === 0 && e.key !== 'u') return;
-    if (e.key === 'j') { S.cursor = Math.min(n - 1, S.cursor + 1); render(); focusReview(); }
-    else if (e.key === 'k') { S.cursor = Math.max(0, S.cursor - 1); render(); focusReview(); }
+    if (e.key === 'j') { e.preventDefault(); moveCursor(1); }
+    else if (e.key === 'k') { e.preventDefault(); moveCursor(-1); }
     else if (e.key === '1') { e.preventDefault(); void resolveItem('keep', render); }
     else if (e.key === '2') { e.preventDefault(); void resolveItem('adopt', render); }
     else if (e.key === 'd') { e.preventDefault(); void resolveItem('defer', render); }
