@@ -243,4 +243,14 @@ export interface IAdminStore {
   runUpgradeApply?(opts?: { force?: boolean; unresolvedCodePaths?: string[] }): Promise<import('../upgrade-apply.js').ApplyResult | { status: 'no_release' }>;
   /** Upgrade Engine — MANUAL rollback of a run to its retained pre-upgrade snapshot (`rollback --run <id>`). */
   runUpgradeRollback?(runId: string): Promise<import('../upgrade-rollback.js').RollbackResult>;
+  /** Upgrade Engine — the review queue (unresolved upgrade_details + tallies). */
+  upgradeReviewQueue?(filter?: { family?: string; priority?: string }): Promise<import('../upgrade-review.js').ReviewQueue>;
+  /** Upgrade Engine — resolve one review item (keep / adopt / defer). */
+  resolveUpgradeReviewItem?(detailId: string, action: 'keep' | 'adopt' | 'defer', opts?: { resolvedBy?: string | null; comment?: string }): Promise<import('../upgrade-review.js').ReviewResult>;
+  /** Upgrade Engine — bulk-resolve matching review items (P1 never bulk-resolved). */
+  bulkResolveUpgradeReview?(action: 'keep' | 'adopt' | 'defer', filter?: { family?: string; priority?: string }, opts?: { resolvedBy?: string | null }): Promise<import('../upgrade-review.js').BulkReviewResult>;
+  /** Upgrade Engine — undo (re-open) a resolved review item. */
+  undoUpgradeReviewItem?(detailId: string): Promise<import('../upgrade-review.js').ReviewResult>;
+  /** Upgrade Engine — TEST-ONLY: seed a mixed review queue for the Upgrade Center E2E (gated by PLAYWRIGHT_E2E). */
+  seedUpgradeReviewFixture?(): Promise<import('../upgrade-review-fixture.js').SeededReviewFixture>;
 }

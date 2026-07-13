@@ -1178,6 +1178,32 @@ export class SQLiteAdapter implements DatabaseAdapter {
     }, runId);
   }
 
+  /** Upgrade Engine — the review queue (unresolved items + tallies). */
+  async upgradeReviewQueue(filter?: { family?: string; priority?: string }): Promise<import('./upgrade-review.js').ReviewQueue> {
+    const { getReviewQueue } = await import('./upgrade-review.js');
+    return getReviewQueue(sqliteSqlClient(this.d), 'sqlite', filter ?? {});
+  }
+  /** Upgrade Engine — resolve one review item (keep / adopt / defer). */
+  async resolveUpgradeReviewItem(detailId: string, action: 'keep' | 'adopt' | 'defer', opts?: { resolvedBy?: string | null; comment?: string }): Promise<import('./upgrade-review.js').ReviewResult> {
+    const { resolveReviewItem } = await import('./upgrade-review.js');
+    return resolveReviewItem(sqliteSqlClient(this.d), 'sqlite', detailId, action, opts ?? {});
+  }
+  /** Upgrade Engine — bulk-resolve matching items (P1 never bulk-resolved). */
+  async bulkResolveUpgradeReview(action: 'keep' | 'adopt' | 'defer', filter?: { family?: string; priority?: string }, opts?: { resolvedBy?: string | null }): Promise<import('./upgrade-review.js').BulkReviewResult> {
+    const { bulkResolveReview } = await import('./upgrade-review.js');
+    return bulkResolveReview(sqliteSqlClient(this.d), 'sqlite', action, filter ?? {}, opts ?? {});
+  }
+  /** Upgrade Engine — undo (re-open) a resolved review item; an adopt is reverted. */
+  async undoUpgradeReviewItem(detailId: string): Promise<import('./upgrade-review.js').ReviewResult> {
+    const { undoReviewItem } = await import('./upgrade-review.js');
+    return undoReviewItem(sqliteSqlClient(this.d), 'sqlite', detailId);
+  }
+  /** Upgrade Engine — TEST-ONLY: seed a mixed review queue for the Upgrade Center E2E. */
+  async seedUpgradeReviewFixture(): Promise<import('./upgrade-review-fixture.js').SeededReviewFixture> {
+    const { seedReviewFixture } = await import('./upgrade-review-fixture.js');
+    return seedReviewFixture(sqliteSqlClient(this.d), 'sqlite');
+  }
+
   /**
    * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply
    * orchestrator's auto-rollback and the manual rollback — a SQLite file restore overwrites the DB, so the

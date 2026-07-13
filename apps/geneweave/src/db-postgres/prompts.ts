@@ -246,6 +246,24 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       });
     },
 
+    /** Upgrade Engine — review queue (Postgres). Mirror of the SQLite adapter methods. */
+    async upgradeReviewQueue(filter?: { family?: string; priority?: string }) {
+      const { getReviewQueue } = await import('../upgrade-review.js');
+      return getReviewQueue(ctx as unknown as SqlClient, 'postgres', filter ?? {});
+    },
+    async resolveUpgradeReviewItem(detailId: string, action: 'keep' | 'adopt' | 'defer', opts?: { resolvedBy?: string | null; comment?: string }) {
+      const { resolveReviewItem } = await import('../upgrade-review.js');
+      return resolveReviewItem(ctx as unknown as SqlClient, 'postgres', detailId, action, opts ?? {});
+    },
+    async bulkResolveUpgradeReview(action: 'keep' | 'adopt' | 'defer', filter?: { family?: string; priority?: string }, opts?: { resolvedBy?: string | null }) {
+      const { bulkResolveReview } = await import('../upgrade-review.js');
+      return bulkResolveReview(ctx as unknown as SqlClient, 'postgres', action, filter ?? {}, opts ?? {});
+    },
+    async undoUpgradeReviewItem(detailId: string) {
+      const { undoReviewItem } = await import('../upgrade-review.js');
+      return undoReviewItem(ctx as unknown as SqlClient, 'postgres', detailId);
+    },
+
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {
       const client = ctx as unknown as SqlClient;

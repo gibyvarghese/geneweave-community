@@ -9,6 +9,10 @@
  *   • POST /api/admin/upgrade/preview   — read-only four-layer plan of what applying it would do (JSON).
  *   • POST /api/admin/upgrade/apply     — apply the latest accepted release (L1→L4, snapshot + verify + rollback).
  *   • POST /api/admin/upgrade/rollback  — manually roll a run back to its retained pre-upgrade snapshot.
+ *   • GET  /api/admin/upgrade/review          — the review queue (unresolved items, P1→P5 + tallies).
+ *   • POST /api/admin/upgrade/review/:id/resolve — keep / adopt / defer one item.
+ *   • POST /api/admin/upgrade/review/bulk     — bulk resolve (never P1).
+ *   • POST /api/admin/upgrade/review/:id/undo    — re-open a resolved item (restore an adopt).
  *
  * Platform-admin only: discovering + trusting a release is a privileged, instance-wide operation. The route
  * is a thin shell over `checkForUpdate` (via the adapter, which supplies the SQL client) — it just assembles
@@ -109,6 +113,78 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
       json(res, 200, 'status' in result && result.status === 'no_release' ? { status: 'no_release', message: 'No accepted release to apply; run the check first.' } : result);
     } catch (err) {
       json(res, 502, { error: 'apply failed', detail: (err as Error).message });
+    }
+  });
+
+  // ── Review queue ──────────────────────────────────────────────────────────────────────────────────────
+  const REVIEW_ACTIONS = new Set(['keep', 'adopt', 'defer']);
+
+  // The review queue — unresolved items with tallies. Optional ?family= / ?priority= narrowing.
+  router.get('/api/admin/upgrade/review', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.upgradeReviewQueue !== 'function') { json(res, 501, { error: 'review queue not supported by this adapter' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const filter: { family?: string; priority?: string } = {};
+    const fam = url.searchParams.get('family'); if (fam) filter.family = fam;
+    const pri = url.searchParams.get('priority'); if (pri) filter.priority = pri;
+    json(res, 200, await db.upgradeReviewQueue(filter));
+  });
+
+  // Resolve one item: { action: 'keep'|'adopt'|'defer', comment? }.
+  router.post('/api/admin/upgrade/review/:id/resolve', async (req, res, params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.resolveUpgradeReviewItem !== 'function') { json(res, 501, { error: 'review not supported by this adapter' }); return; }
+    let body: { action?: unknown; comment?: unknown } = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { /* bad body */ }
+    const action = String(body.action ?? '');
+    if (!REVIEW_ACTIONS.has(action)) { json(res, 400, { error: "action must be 'keep', 'adopt', or 'defer'" }); return; }
+    try {
+      const result = await db.resolveUpgradeReviewItem(params['id']!, action as 'keep' | 'adopt' | 'defer', {
+        resolvedBy: auth!.userId, ...(typeof body.comment === 'string' ? { comment: body.comment } : {}),
+      });
+      json(res, result.ok ? 200 : 409, result);
+    } catch (err) {
+      json(res, 502, { error: 'resolve failed', detail: (err as Error).message });
+    }
+  });
+
+  // Bulk resolve: { action, family?, priority? }. P1 items are never bulk-resolved (server-enforced).
+  router.post('/api/admin/upgrade/review/bulk', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.bulkResolveUpgradeReview !== 'function') { json(res, 501, { error: 'review not supported by this adapter' }); return; }
+    let body: { action?: unknown; family?: unknown; priority?: unknown } = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { /* bad body */ }
+    const action = String(body.action ?? '');
+    if (!REVIEW_ACTIONS.has(action)) { json(res, 400, { error: "action must be 'keep', 'adopt', or 'defer'" }); return; }
+    const filter: { family?: string; priority?: string } = {};
+    if (typeof body.family === 'string') filter.family = body.family;
+    if (typeof body.priority === 'string') filter.priority = body.priority;
+    try {
+      json(res, 200, await db.bulkResolveUpgradeReview(action as 'keep' | 'adopt' | 'defer', filter, { resolvedBy: auth!.userId }));
+    } catch (err) {
+      json(res, 502, { error: 'bulk resolve failed', detail: (err as Error).message });
+    }
+  });
+
+  // TEST-ONLY: seed a mixed review queue for the Upgrade Center E2E. Registered only under PLAYWRIGHT_E2E so
+  // it can never exist in production.
+  if (process.env['PLAYWRIGHT_E2E'] === '1') {
+    router.post('/api/admin/upgrade/_test/seed-review', async (_req, res, _params, auth) => {
+      if (!requirePlatformAdmin(res, auth)) return;
+      if (typeof db.seedUpgradeReviewFixture !== 'function') { json(res, 501, { error: 'fixture not supported by this adapter' }); return; }
+      json(res, 200, await db.seedUpgradeReviewFixture());
+    });
+  }
+
+  // Undo (re-open) a resolved item; an adopt is reverted to its captured pre-adopt state.
+  router.post('/api/admin/upgrade/review/:id/undo', async (_req, res, params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.undoUpgradeReviewItem !== 'function') { json(res, 501, { error: 'review not supported by this adapter' }); return; }
+    try {
+      const result = await db.undoUpgradeReviewItem(params['id']!);
+      json(res, result.ok ? 200 : 409, result);
+    } catch (err) {
+      json(res, 502, { error: 'undo failed', detail: (err as Error).message });
     }
   });
 

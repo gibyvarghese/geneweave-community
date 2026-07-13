@@ -63,6 +63,8 @@ export interface UpgradeDetailRow {
   resolution: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
+  /** Captured pre-action state for an undoable 'adopted' resolution (JSON); null for keep/defer. */
+  undo_json: string | null;
   created_at: string;
 }
 
@@ -146,6 +148,69 @@ export async function listUpgradeDetails(
     params,
   );
   return rows as unknown as UpgradeDetailRow[];
+}
+
+/**
+ * The review queue: every UNRESOLVED detail across all runs, most-urgent first (P1→P5, then newest). Optional
+ * narrowing by family / priority. This is what the Upgrade Center's review queue lists.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param filter optional { family, priority } narrowing.
+ * @returns the unresolved detail rows.
+ */
+export async function listUnresolvedUpgradeDetails(
+  client: SqlClient,
+  dialect: SqlDialect,
+  filter: { family?: string; priority?: string } = {},
+): Promise<UpgradeDetailRow[]> {
+  const where: string[] = ['resolution IS NULL'];
+  const params: unknown[] = [];
+  if (filter.family) { params.push(filter.family); where.push(`family = ${ph(dialect, params.length)}`); }
+  if (filter.priority) { params.push(filter.priority); where.push(`priority = ${ph(dialect, params.length)}`); }
+  const { rows } = await client.query(
+    `SELECT * FROM upgrade_details WHERE ${where.join(' AND ')} ORDER BY priority ASC, created_at DESC, id DESC`,
+    params,
+  );
+  return rows as unknown as UpgradeDetailRow[];
+}
+
+/**
+ * Fetch one detail row by id.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param detailId the row id.
+ * @returns the row, or null if not found.
+ */
+export async function getUpgradeDetail(client: SqlClient, dialect: SqlDialect, detailId: string): Promise<UpgradeDetailRow | null> {
+  const { rows } = await client.query(`SELECT * FROM upgrade_details WHERE id = ${ph(dialect, 1)}`, [detailId]);
+  return (rows[0] as unknown as UpgradeDetailRow) ?? null;
+}
+
+/**
+ * Re-open a previously-resolved detail (the review-queue UNDO): clears resolution, resolver, and the captured
+ * undo state so it returns to the queue.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param detailId the row id.
+ * @returns nothing. Side effect: one UPDATE of upgrade_details.
+ */
+export async function unresolveUpgradeDetail(client: SqlClient, dialect: SqlDialect, detailId: string): Promise<void> {
+  await client.query(
+    `UPDATE upgrade_details SET resolution = NULL, resolved_at = NULL, resolved_by = NULL, undo_json = NULL WHERE id = ${ph(dialect, 1)}`,
+    [detailId],
+  );
+}
+
+/**
+ * Store the captured pre-action state on a detail (so an 'adopted' resolution can be undone).
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param detailId the row id.
+ * @param undoJson the serialised pre-action row state, or null.
+ * @returns nothing. Side effect: one UPDATE of upgrade_details.
+ */
+export async function setUpgradeDetailUndo(client: SqlClient, dialect: SqlDialect, detailId: string, undoJson: string | null): Promise<void> {
+  await client.query(`UPDATE upgrade_details SET undo_json = ${ph(dialect, 1)} WHERE id = ${ph(dialect, 2)}`, [undoJson, detailId]);
 }
 
 /**

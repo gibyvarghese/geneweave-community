@@ -224,6 +224,40 @@ the engine restores that run's retained snapshot, marks it `rolled_back`, and fi
 bounded — only the newest successful apply keeps its snapshot, so you can always undo the last upgrade; an
 older run whose snapshot was superseded reports `no_snapshot`.
 
+## The Upgrade Center
+
+Everything above has a screen. The **Upgrade Center** (Admin → Governance → Upgrade Center, platform-admin only)
+is a stepper over the lifecycle — **Check → Preview → Apply** — landing on the **review queue** for whatever the
+apply couldn't settle automatically.
+
+The review queue is keyboard-driven, mirroring the priorities the engine records (P1 first):
+
+| key | action |
+|---|---|
+| **j / k** | move the cursor down / up the queue |
+| **1** | *keep mine* — your version stands (marked resolved, no data change) |
+| **2** | *adopt incoming* — take the shipped upstream (the record is re-baselined; **undoable**) |
+| **d** | *defer* — leave it, with a comment |
+| **u** | *undo* the last resolution (an adopt is reverted to the exact prior record) |
+
+**Bulk with a guardrail.** "Keep-mine all (non-P1)" resolves a whole family in one action — but a **P1** item (a
+guardrail change or a genuine conflict) is **never** resolved in bulk, enforced on the server, not just hidden in
+the UI. A running tally counts the queue down to zero.
+
+Each adopt snapshots the record's prior state, so **undo restores it verbatim** — the drift badge (`in sync` /
+`customized` / `diverged`, and the amber "v3 · v5 available" lagging form) tracks the truth across
+edit → upgrade → adopt → revert. The record panel reuses the realm workbench's field-level three-way diff, so a
+genuine conflict is merged field by field, never guessed.
+
+The review actions are HTTP endpoints too, for automation:
+
+| endpoint | does |
+|---|---|
+| `GET /api/admin/upgrade/review` | the queue (unresolved items, P1→P5, with tallies) |
+| `POST /api/admin/upgrade/review/:id/resolve` | keep / adopt / defer one item |
+| `POST /api/admin/upgrade/review/bulk` | bulk resolve (P1 never touched) |
+| `POST /api/admin/upgrade/review/:id/undo` | re-open a resolved item (an adopt is reverted) |
+
 ## Safety: the migration ledger and pre-upgrade snapshots
 
 - **Migration ledger.** Schema migrations are recorded in a `schema_migrations` ledger as they apply, keyed
@@ -265,6 +299,8 @@ already know still apply and are respected by the reconcile:
 | apply orchestration (L1→L4, snapshot/rollback, resume, deferral) | `apps/geneweave/src/upgrade-apply.ts` |
 | post-apply verify (readiness + invariants + `@upgrade-critical` hook) | `apps/geneweave/src/upgrade-verify.ts` |
 | manual rollback (`rollback --run <id>`) | `apps/geneweave/src/upgrade-rollback.ts`; retained-snapshot column `migrations/m172-upgrade-snapshot-ref.ts` |
+| review queue engine (keep/adopt/defer/bulk/undo) | `apps/geneweave/src/upgrade-review.ts`; undo-snapshot column `migrations/m173-upgrade-detail-undo.ts` |
+| Upgrade Center screen | `apps/geneweave-ui/src/ui/upgrade-center-ui.ts` (customView `upgrade-center`); composes `realm-ui.ts` badges + diff |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
 | maintenance flag | `apps/geneweave/src/upgrade-maintenance.ts`; `migrations/m171-upgrade-maintenance.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
 | strict/ledgered L3 run (deferral-aware) | `runUpgradeMigrations` in `apps/geneweave/src/migrations/index.ts` |

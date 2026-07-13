@@ -777,6 +777,31 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .realm-badge.customized{background:rgba(37,99,235,.10);color:var(--accent);border-color:rgba(37,99,235,.20)}
 .realm-badge.stale{background:rgba(217,138,61,.12);color:var(--amber);border-color:rgba(217,138,61,.28)}
 .realm-badge.diverged{background:rgba(216,90,48,.12);color:var(--danger);border-color:rgba(216,90,48,.26)}
+/* Lagging-version form ("v3 · v5 available") — amber "attention", a built-in that trails the shipped default. */
+.realm-badge.lagging{background:rgba(217,138,61,.12);color:var(--amber);border-color:rgba(217,138,61,.28)}
+/* Upgrade Center */
+.uc-root{max-width:1100px}
+.uc-error{background:rgba(216,90,48,.10);color:var(--danger);border:1px solid rgba(216,90,48,.22);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:13px}
+.uc-stepper{display:flex;gap:8px;margin:12px 0}
+.uc-step{padding:8px 16px;border-radius:8px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg);cursor:pointer;font-weight:600}
+.uc-step:hover{background:var(--bg3)}
+.uc-layers{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0}
+.uc-layer-card{border:1px solid var(--bg4);border-radius:8px;padding:12px;background:var(--bg2)}
+.uc-layer-title{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--fg2)}
+.uc-layer-detail{font-size:18px;font-weight:700;margin-top:4px}
+.uc-review{border:1px solid var(--bg4);border-radius:10px;padding:12px;margin-top:12px;outline:none}
+.uc-review:focus-within{border-color:var(--accent)}
+.uc-review-head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.uc-remaining{color:var(--fg2);font-size:13px}
+.uc-hint{font-size:11px;color:var(--fg2);margin-bottom:8px}
+.uc-review-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+.uc-review-row.is-cursor{background:var(--accent-dim);outline:2px solid var(--accent)}
+.uc-family{font-weight:600}
+.uc-key{color:var(--fg2)}
+.uc-note{color:var(--fg2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uc-row-actions{display:flex;gap:4px}
+.uc-row-actions button,.uc-review-head button{padding:3px 10px;border-radius:6px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg);cursor:pointer;font-size:12px}
+.uc-empty{color:var(--fg2);padding:12px;text-align:center}
 /* Tenancy Realm workbench */
 .realm-wb{max-width:1100px}
 .realm-wb .rw-nav{display:flex;gap:6px;margin:0 0 16px;border-bottom:1px solid var(--bg4)}
