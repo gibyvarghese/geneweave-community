@@ -255,4 +255,10 @@ export interface IAdminStore {
   seedUpgradeReviewFixture?(): Promise<import('../upgrade-review-fixture.js').SeededReviewFixture>;
   /** Upgrade Engine — the "needs attention" report (drifted + version-lagging records) for a family. */
   upgradeAttention?(family: string, tenantId?: string): Promise<import('../upgrade-attention.js').AttentionReport>;
+  /** Upgrade Engine — L2: capture the current source tree as the stored code baseline. */
+  captureCodeBaseline?(): Promise<{ digest: string; fileCount: number }>;
+  /** Upgrade Engine — L2: read-only `code status` (live tree vs the stored baseline). */
+  runCodeStatus?(): Promise<import('../code-baseline-store.js').CodeStatusOutcome>;
+  /** Upgrade Engine — L2: scan the code tree and record its changes as L2 review items. */
+  runCodeScan?(): Promise<import('../code-baseline-store.js').CodeScanOutcome>;
 }

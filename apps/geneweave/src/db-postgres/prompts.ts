@@ -267,6 +267,18 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const { attentionReport } = await import('../upgrade-attention.js');
       return attentionReport(ctx as unknown as SqlClient, 'postgres', family, tenantId != null ? { tenantId } : {});
     },
+    async captureCodeBaseline() {
+      const { captureCodeBaseline, defaultSourceRoot } = await import('../code-baseline-store.js');
+      return captureCodeBaseline(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot());
+    },
+    async runCodeStatus() {
+      const { runCodeStatus, defaultSourceRoot } = await import('../code-baseline-store.js');
+      return runCodeStatus(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot());
+    },
+    async runCodeScan() {
+      const { runCodeScan, defaultSourceRoot } = await import('../code-baseline-store.js');
+      return runCodeScan(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot());
+    },
 
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {

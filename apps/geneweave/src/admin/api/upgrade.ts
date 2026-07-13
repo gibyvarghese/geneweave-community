@@ -9,6 +9,10 @@
  *   • POST /api/admin/upgrade/preview   — read-only four-layer plan of what applying it would do (JSON).
  *   • POST /api/admin/upgrade/apply     — apply the latest accepted release (L1→L4, snapshot + verify + rollback).
  *   • POST /api/admin/upgrade/rollback  — manually roll a run back to its retained pre-upgrade snapshot.
+ *   • POST /api/admin/upgrade/code/baseline   — capture the source tree as the L2 code baseline.
+ *   • GET  /api/admin/upgrade/code/status     — which vendor source files the operator has edited (read-only).
+ *   • POST /api/admin/upgrade/code/scan       — scan the code tree + record changes as L2 review items.
+ *   • GET  /api/admin/upgrade/attention       — drifted + version-lagging records in a family.
  *   • GET  /api/admin/upgrade/review          — the review queue (unresolved items, P1→P5 + tallies).
  *   • POST /api/admin/upgrade/review/:id/resolve — keep / adopt / defer one item.
  *   • POST /api/admin/upgrade/review/bulk     — bulk resolve (never P1).
@@ -118,6 +122,31 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
 
   // ── Review queue ──────────────────────────────────────────────────────────────────────────────────────
   const REVIEW_ACTIONS = new Set(['keep', 'adopt', 'defer']);
+
+  // ── L2 code layer ─────────────────────────────────────────────────────────────────────────────────────
+  // Capture the current source tree as the stored code baseline (the BASE for future scans).
+  router.post('/api/admin/upgrade/code/baseline', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.captureCodeBaseline !== 'function') { json(res, 501, { error: 'code baseline not supported by this adapter' }); return; }
+    try { json(res, 200, await db.captureCodeBaseline()); }
+    catch (err) { json(res, 502, { error: 'baseline capture failed', detail: (err as Error).message }); }
+  });
+
+  // Read-only `code status` — which vendor source files the operator has modified since the baseline.
+  router.get('/api/admin/upgrade/code/status', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.runCodeStatus !== 'function') { json(res, 501, { error: 'code status not supported by this adapter' }); return; }
+    try { json(res, 200, await db.runCodeStatus()); }
+    catch (err) { json(res, 502, { error: 'code status failed', detail: (err as Error).message }); }
+  });
+
+  // Scan the code tree and record its changes as L2 review items (they join the review queue).
+  router.post('/api/admin/upgrade/code/scan', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.runCodeScan !== 'function') { json(res, 501, { error: 'code scan not supported by this adapter' }); return; }
+    try { json(res, 200, await db.runCodeScan()); }
+    catch (err) { json(res, 502, { error: 'code scan failed', detail: (err as Error).message }); }
+  });
 
   // The "needs attention" report for a family — drifted + version-lagging records. ?family= (required), ?tenantId=.
   router.get('/api/admin/upgrade/attention', async (req, res, _params, auth) => {

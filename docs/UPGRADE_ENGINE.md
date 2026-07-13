@@ -269,6 +269,35 @@ The review actions are HTTP endpoints too, for automation:
 | `POST /api/admin/upgrade/review/:id/undo` | re-open a resolved item (an adopt is reverted) |
 | `GET /api/admin/upgrade/attention?family=…` | the drifted + version-lagging records in a family |
 
+## The application-code layer (L2)
+
+A running instance can't hot-swap its own source — new code arrives by deploy. But it *can* tell you what you've
+changed and what a release changes, so you never lose an edit across an upgrade. That's the L2 code layer.
+
+Identity is a **source baseline**: a manifest of every source file's path → SRI hash, captured at install/upgrade
+time (`POST /api/admin/upgrade/code/baseline`). It's git-free — a non-git deploy gets the same three-way answer
+git would give. A first-line **provenance pragma** (`// @geneweave-provenance …`) is excluded from the hash, so
+stamping a file with where it came from never reads as an edit.
+
+**`code status`** (`GET /api/admin/upgrade/code/status`) hashes the live tree and classifies each file against
+the baseline (and, at upgrade time, the release's target): *unchanged · operator-modified · vendor-updated ·
+both-changed · added · removed · orphaned* (a file the release deletes that you'd edited — never auto-removed).
+A **`code scan`** (`POST /api/admin/upgrade/code/scan`) records those changes as L2 items in the **same review
+queue** as content, so code gets keep/defer/bulk with the identical guardrails — a both-changed **conflict is
+P1** and is never bulk-resolved. (`adopt` is refused for code: taking the upstream is a deploy, not an in-app
+write.)
+
+For a both-changed file the engine runs a line-level **diff3 merge**: non-overlapping edits merge cleanly;
+overlapping edits produce standard `<<<<<<< ||||||| ======= >>>>>>>` markers to resolve in any editor or
+mergetool — the git-native path.
+
+The walk is confined to the tree root and never follows a symlink, so a hostile baseline can't read outside the
+scan root. **Scale:** hashing a 10,000-file tree takes ~0.2 s; the review resolution path sustains ~30k
+resolves/s with 1,000 concurrent resolves finishing in tens of milliseconds (p99 ≈ 31 ms) with no lost updates,
+and concurrent resolves of the same item are idempotent. (In-app CodeMirror merge view, git branch
+checkout/import round-trip, and the Private edition's patch-file lifecycle are the deploy/editor-side pieces that
+sit on this data; the status, classification, and diff3 merge are in-app.)
+
 ## Safety: the migration ledger and pre-upgrade snapshots
 
 - **Migration ledger.** Schema migrations are recorded in a `schema_migrations` ledger as they apply, keyed
@@ -312,6 +341,8 @@ already know still apply and are respected by the reconcile:
 | manual rollback (`rollback --run <id>`) | `apps/geneweave/src/upgrade-rollback.ts`; retained-snapshot column `migrations/m172-upgrade-snapshot-ref.ts` |
 | review queue engine (keep/adopt/defer/bulk/undo) | `apps/geneweave/src/upgrade-review.ts`; undo-snapshot column `migrations/m173-upgrade-detail-undo.ts` |
 | needs-attention report (drift + version lag) | `apps/geneweave/src/upgrade-attention.ts` |
+| L2 code baselines + scanner + diff3 merge | `apps/geneweave/src/source-baselines.ts`, `code-scan.ts` (uses `node-diff3`) |
+| L2 code baseline store + scan orchestration | `apps/geneweave/src/code-baseline-store.ts`; baseline table `migrations/m174-upgrade-code-baseline.ts` |
 | per-node workflow merge | `apps/geneweave/src/workflow-merge.ts`, wired into `realm-diff.ts` (`applyRealmMerge`/`loadThreeWayDiff`) |
 | Upgrade Center screen | `apps/geneweave-ui/src/ui/upgrade-center-ui.ts` (customView `upgrade-center`); composes `realm-ui.ts` badges + diff |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |

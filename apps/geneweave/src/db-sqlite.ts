@@ -1209,6 +1209,22 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return attentionReport(sqliteSqlClient(this.d), 'sqlite', family, tenantId != null ? { tenantId } : {});
   }
 
+  /** Upgrade Engine — L2: capture the current source tree as the stored code baseline. */
+  async captureCodeBaseline(): Promise<{ digest: string; fileCount: number }> {
+    const { captureCodeBaseline, defaultSourceRoot } = await import('./code-baseline-store.js');
+    return captureCodeBaseline(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot());
+  }
+  /** Upgrade Engine — L2: read-only `code status` (live tree vs the stored baseline). */
+  async runCodeStatus(): Promise<import('./code-baseline-store.js').CodeStatusOutcome> {
+    const { runCodeStatus, defaultSourceRoot } = await import('./code-baseline-store.js');
+    return runCodeStatus(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot());
+  }
+  /** Upgrade Engine — L2: scan the code tree and record its changes as L2 review items. */
+  async runCodeScan(): Promise<import('./code-baseline-store.js').CodeScanOutcome> {
+    const { runCodeScan, defaultSourceRoot } = await import('./code-baseline-store.js');
+    return runCodeScan(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot());
+  }
+
   /**
    * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply
    * orchestrator's auto-rollback and the manual rollback — a SQLite file restore overwrites the DB, so the
