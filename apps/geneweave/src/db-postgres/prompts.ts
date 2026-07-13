@@ -168,6 +168,16 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return { runId };
     },
 
+    /** Upgrade Engine — the `check` command (Postgres). Mirror of the SQLite adapter method. */
+    async runUpgradeCheck(config: import('../upgrade-check.js').CheckConfig) {
+      const { checkForUpdate } = await import('../upgrade-check.js');
+      return checkForUpdate(ctx as unknown as SqlClient, 'postgres', config);
+    },
+    async latestUpgradeReleaseCheck() {
+      const { latestReleaseCheck } = await import('../upgrade-release-store.js');
+      return latestReleaseCheck(ctx as unknown as SqlClient, 'postgres');
+    },
+
     async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
       return setRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId, patch);
     },

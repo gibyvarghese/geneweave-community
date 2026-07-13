@@ -1085,6 +1085,17 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return { runId };
   }
 
+  /** Upgrade Engine — discover + verify + record the latest release (the `check` command). */
+  async runUpgradeCheck(config: import('./upgrade-check.js').CheckConfig): Promise<import('./upgrade-check.js').CheckResult> {
+    const { checkForUpdate } = await import('./upgrade-check.js');
+    return checkForUpdate(sqliteSqlClient(this.d), 'sqlite', config);
+  }
+  /** Upgrade Engine — the most recent release check (for the admin status view). */
+  async latestUpgradeReleaseCheck(): Promise<import('./upgrade-release-store.js').UpgradeReleaseRow | null> {
+    const { latestReleaseCheck } = await import('./upgrade-release-store.js');
+    return latestReleaseCheck(sqliteSqlClient(this.d), 'sqlite');
+  }
+
   async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
     return setRealmState(sqliteSqlClient(this.d), 'sqlite', family, logicalKey, tenantId, patch);
   }

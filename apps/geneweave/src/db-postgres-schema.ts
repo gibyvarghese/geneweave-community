@@ -2739,6 +2739,25 @@ CREATE INDEX IF NOT EXISTS ix_upgrade_details_priority ON upgrade_details(priori
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_disposition ON upgrade_details(disposition);
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_propagation ON upgrade_details(family, logical_key, remote_hash);
 
+CREATE TABLE IF NOT EXISTS "upgrade_releases" (
+  "id" TEXT,
+  "name" TEXT,
+  "version" TEXT NOT NULL,
+  "edition" TEXT,
+  "channel" TEXT,
+  "published_at" TEXT,
+  "expires_at" TEXT,
+  "key_fingerprint" TEXT,
+  "outcome" TEXT NOT NULL,
+  "reject_reason" TEXT,
+  "accepted" BIGINT NOT NULL DEFAULT 0,
+  "manifest_json" TEXT,
+  "checked_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS idx_upgrade_releases_accepted ON upgrade_releases(accepted, version);
+CREATE INDEX IF NOT EXISTS idx_upgrade_releases_checked ON upgrade_releases(checked_at);
+
 CREATE TABLE IF NOT EXISTS "recipe_configs" (
   "id" TEXT,
   "name" TEXT NOT NULL,

@@ -231,4 +231,8 @@ export interface IAdminStore {
    * legacy adapter can omit it; applySeed calls it defensively. Returns the upgrade run's id.
    */
   seedReconcileRealm?(): Promise<{ runId: string }>;
+  /** Upgrade Engine — discover + verify + record the latest release (the `check` command). */
+  runUpgradeCheck?(config: import('../upgrade-check.js').CheckConfig): Promise<import('../upgrade-check.js').CheckResult>;
+  /** Upgrade Engine — the most recent release check, for the admin status view. */
+  latestUpgradeReleaseCheck?(): Promise<import('../upgrade-release-store.js').UpgradeReleaseRow | null>;
 }

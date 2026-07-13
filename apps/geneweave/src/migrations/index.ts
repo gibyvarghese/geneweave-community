@@ -148,6 +148,7 @@ import { applyM165RealmColumnsModelCatalog } from './m165-realm-columns-model-ca
 import { applyM166RealmColumnsLiveRegistries } from './m166-realm-columns-live-registries.js';
 import { applyM167RealmColumnsTemplates } from './m167-realm-columns-templates.js';
 import { applyM168RealmColumnsCapabilityScores } from './m168-realm-columns-capability-scores.js';
+import { applyM169UpgradeReleases } from './m169-upgrade-releases.js';
 import { applyEncryption } from './encryption.js';
 import { createMigrationRunner } from './helpers.js';
 
@@ -304,6 +305,7 @@ const bootstrapRunner = createMigrationRunner([
   { id: 'm166-realm-columns-live-registries', description: 'Realm columns on live_handler_kinds (kind) + live_attention_policies (key) — the live-agent runtime registries (Tenancy Realm). A tenant keeps its own handler-kind config / attention policy without changing the global default. Excludes enabled. Relabel, zero data movement. Idempotent. Postgres via regenerated schema', run: applyM166RealmColumnsLiveRegistries },
   { id: 'm167-realm-columns-templates', description: 'Realm columns on scaffold_templates (name) — reusable project/agent starter definitions (Tenancy Realm). A tenant keeps its own edited copy of a built-in template without touching the global default. Excludes enabled. Relabel, zero data movement. Idempotent. Postgres via regenerated schema', run: applyM167RealmColumnsTemplates },
   { id: 'm168-realm-columns-capability-scores', description: 'Converge model_capability_scores onto the STANDARD realm pattern (Tenancy Realm — full family). Rebuilds the table to drop the old inline UNIQUE(tenant_id, model_id, provider, task_key), preserving every column via PRAGMA table_info (no data loss), and adds the realm + deprecation columns; backfills owner_tenant_id = tenant_id (the canonical owner now; tenant_id kept in lockstep for back-compat), realm = global/tenant by ownership, logical_key = provider::model_id::task_key (the cell), content_hash over the CONFIG fields only (excludes auto-updating production signals), origin_hash baseline; adds the composite UNIQUE(logical_key, owner_tenant_id) + recreates the lookup indexes. So governance/drift/badges/seed-reconcile all treat capability scores like any family. Idempotent (skips rebuild once realm exists). Postgres via regenerated schema', run: applyM168RealmColumnsCapabilityScores },
+  { id: 'm169-upgrade-releases', description: 'Upgrade Engine: upgrade_releases — one row per release manifest this instance has checked (what release, accepted or rejected + why, and the manifest for accepted ones). Doubles as the anti-rollback floor: max(version) among accepted releases, so a replayed old but validly-signed manifest can never force a downgrade. One new table, idempotent. Postgres via regenerated schema', run: applyM169UpgradeReleases },
 ]);
 
 export function applySQLiteBootstrapMigrations(db: BetterSqlite3.Database): void {
