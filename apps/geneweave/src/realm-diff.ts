@@ -21,6 +21,7 @@
 import { createSqlVersionLog, driftState, type SqlClient, type SqlDialect, type DriftState } from '@weaveintel/realm';
 import { realmContentHash, parseRealmSemantic } from './migrations/m151-realm-columns.js';
 import { realmFamily, logicalKeyOfRow, type RealmFamilySpec } from './realm-families.js';
+import { structuredFieldsFor } from './workflow-merge.js';
 
 const ph = (d: SqlDialect, i: number) => (d === 'postgres' ? `$${i}` : '?');
 
@@ -195,7 +196,28 @@ export async function loadThreeWayDiff(
   }
 
   const base = await versionPayloadByHash(client, dialect, family, logicalKey, baseHash);
-  const { fields, conflicts } = threeWayFieldDiff(spec, base, local, remote);
+  const dr = threeWayFieldDiff(spec, base, local, remote);
+  let fields = dr.fields;
+  let conflicts = dr.conflicts;
+
+  // Structured fields (a workflow's `steps` graph) that conflict ATOMICALLY but merge cleanly PER NODE are not
+  // a real conflict — resolve them to the per-node merge so the diff/merge UI doesn't demand a manual choice
+  // for a vendor-added node vs a tenant re-wiring of a different node.
+  const structured = structuredFieldsFor(family);
+  if (structured) {
+    const resolvedByNode = new Map<string, unknown>();
+    for (const f of fields) {
+      const m = structured[f.field];
+      if (m && f.status === 'conflict') {
+        const res = m(f.base, f.local, f.remote);
+        if (res.conflicts.length === 0) resolvedByNode.set(f.field, res.value);
+      }
+    }
+    if (resolvedByNode.size > 0) {
+      fields = fields.map((f) => (resolvedByNode.has(f.field) ? { ...f, status: 'both_same' as const, resolved: resolvedByNode.get(f.field) } : f));
+      conflicts = conflicts.filter((c) => !resolvedByNode.has(c));
+    }
+  }
 
   return {
     family: spec.family, recordId, logicalKey,
@@ -229,13 +251,18 @@ export async function applyRealmMerge(
   if ('error' in diff) return { ok: false, reason: diff.error };
   if (!diff.hashes.remote) return { ok: false, reason: 'nothing to merge against (no upstream version)' };
 
-  const unresolved = diff.conflicts.filter((f) => !Object.hasOwn(resolved, f));
+  // Structured fields (a workflow's `steps` node graph) merge PER ELEMENT: a vendor-added node and a tenant
+  // re-wiring of a DIFFERENT node coexist, so `steps` only counts as a conflict when the SAME node changed on
+  // both sides. autoMerge consults the family's structured mergers; the resulting conflict list — not the
+  // atomic field diff — is what a caller must resolve, and its merged value is what we write.
+  const structured = structuredFieldsFor(family);
+  const { merged, conflicts: mergeConflicts } = autoMerge(diff, structured);
+  const unresolved = mergeConflicts.filter((f) => !Object.hasOwn(resolved, f));
   if (unresolved.length > 0) {
     return { ok: false, reason: `unresolved conflicts: ${unresolved.join(', ')} — supply a value for each` };
   }
 
-  // Start from the auto-merge, then let the caller's explicit choices win.
-  const { merged } = autoMerge(diff);
+  // Let the caller's explicit choices win over the auto-merge.
   for (const field of spec.semanticCols) if (Object.hasOwn(resolved, field)) merged[field] = resolved[field];
 
   const contentHash = realmContentHash(merged);

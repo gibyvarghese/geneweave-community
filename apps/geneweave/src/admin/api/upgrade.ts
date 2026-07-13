@@ -119,6 +119,21 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
   // ── Review queue ──────────────────────────────────────────────────────────────────────────────────────
   const REVIEW_ACTIONS = new Set(['keep', 'adopt', 'defer']);
 
+  // The "needs attention" report for a family — drifted + version-lagging records. ?family= (required), ?tenantId=.
+  router.get('/api/admin/upgrade/attention', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.upgradeAttention !== 'function') { json(res, 501, { error: 'attention report not supported by this adapter' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const family = url.searchParams.get('family');
+    if (!family) { json(res, 400, { error: 'family is required' }); return; }
+    const tenantId = url.searchParams.get('tenantId');
+    try {
+      json(res, 200, await db.upgradeAttention(family, tenantId ?? undefined));
+    } catch (err) {
+      json(res, 502, { error: 'attention report failed', detail: (err as Error).message });
+    }
+  });
+
   // The review queue — unresolved items with tallies. Optional ?family= / ?priority= narrowing.
   router.get('/api/admin/upgrade/review', async (req, res, _params, auth) => {
     if (!requirePlatformAdmin(res, auth)) return;

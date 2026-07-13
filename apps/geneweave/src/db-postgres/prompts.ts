@@ -263,6 +263,10 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const { undoReviewItem } = await import('../upgrade-review.js');
       return undoReviewItem(ctx as unknown as SqlClient, 'postgres', detailId);
     },
+    async upgradeAttention(family: string, tenantId?: string) {
+      const { attentionReport } = await import('../upgrade-attention.js');
+      return attentionReport(ctx as unknown as SqlClient, 'postgres', family, tenantId != null ? { tenantId } : {});
+    },
 
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {

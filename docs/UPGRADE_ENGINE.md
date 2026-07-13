@@ -82,6 +82,10 @@ customised is kept; a node either side *added* coexists; only a node both sides 
 conflict — and even then the tenant's version is kept and flagged, never lost. The same three-way logic,
 applied to each node instead of the whole field.
 
+This per-node merge runs everywhere a workflow is merged — the boot reconcile, the review queue's *adopt*, and
+the field-level merge in the realm workbench — so a release that adds a node never spuriously conflicts with a
+tenant re-wiring of a different node; only the same node changed on both sides needs a human.
+
 ## Coverage
 
 The reconcile covers every built-in family the product ships — prompts, skills, guardrails, tool/routing/cost
@@ -244,6 +248,12 @@ The review queue is keyboard-driven, mirroring the priorities the engine records
 guardrail change or a genuine conflict) is **never** resolved in bulk, enforced on the server, not just hidden in
 the UI. A running tally counts the queue down to zero.
 
+**Needs attention.** Alongside the queue, a "needs attention" scan lists, for any family, the records that have
+drifted from the shipped default *or* lag behind the latest published version — each with its drift badge and,
+when it trails, the amber "v3 · v5 available" lagging badge. It's a read-only overview
+(`GET /api/admin/upgrade/attention?family=…`) built from the drift report + the version log, so an operator can
+see what to review without opening each record.
+
 Each adopt snapshots the record's prior state, so **undo restores it verbatim** — the drift badge (`in sync` /
 `customized` / `diverged`, and the amber "v3 · v5 available" lagging form) tracks the truth across
 edit → upgrade → adopt → revert. The record panel reuses the realm workbench's field-level three-way diff, so a
@@ -257,6 +267,7 @@ The review actions are HTTP endpoints too, for automation:
 | `POST /api/admin/upgrade/review/:id/resolve` | keep / adopt / defer one item |
 | `POST /api/admin/upgrade/review/bulk` | bulk resolve (P1 never touched) |
 | `POST /api/admin/upgrade/review/:id/undo` | re-open a resolved item (an adopt is reverted) |
+| `GET /api/admin/upgrade/attention?family=…` | the drifted + version-lagging records in a family |
 
 ## Safety: the migration ledger and pre-upgrade snapshots
 
@@ -300,6 +311,8 @@ already know still apply and are respected by the reconcile:
 | post-apply verify (readiness + invariants + `@upgrade-critical` hook) | `apps/geneweave/src/upgrade-verify.ts` |
 | manual rollback (`rollback --run <id>`) | `apps/geneweave/src/upgrade-rollback.ts`; retained-snapshot column `migrations/m172-upgrade-snapshot-ref.ts` |
 | review queue engine (keep/adopt/defer/bulk/undo) | `apps/geneweave/src/upgrade-review.ts`; undo-snapshot column `migrations/m173-upgrade-detail-undo.ts` |
+| needs-attention report (drift + version lag) | `apps/geneweave/src/upgrade-attention.ts` |
+| per-node workflow merge | `apps/geneweave/src/workflow-merge.ts`, wired into `realm-diff.ts` (`applyRealmMerge`/`loadThreeWayDiff`) |
 | Upgrade Center screen | `apps/geneweave-ui/src/ui/upgrade-center-ui.ts` (customView `upgrade-center`); composes `realm-ui.ts` badges + diff |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
 | maintenance flag | `apps/geneweave/src/upgrade-maintenance.ts`; `migrations/m171-upgrade-maintenance.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |

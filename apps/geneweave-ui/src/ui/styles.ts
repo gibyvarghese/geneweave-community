@@ -802,6 +802,8 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .uc-row-actions{display:flex;gap:4px}
 .uc-row-actions button,.uc-review-head button{padding:3px 10px;border-radius:6px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg);cursor:pointer;font-size:12px}
 .uc-empty{color:var(--fg2);padding:12px;text-align:center}
+.uc-attention{border:1px solid var(--bg4);border-radius:10px;padding:12px;margin-top:12px}
+.uc-attention select{padding:4px 8px;border-radius:6px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg)}
 /* Tenancy Realm workbench */
 .realm-wb{max-width:1100px}
 .realm-wb .rw-nav{display:flex;gap:6px;margin:0 0 16px;border-bottom:1px solid var(--bg4)}

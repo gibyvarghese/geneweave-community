@@ -17,7 +17,13 @@
  */
 import { h } from './dom.js';
 import { api } from './api.js';
-import { realmBadge } from './realm-ui.js';
+import { realmBadge, laggingBadge } from './realm-ui.js';
+
+/** Realm families the "needs attention" report can scan (the drift-tracked built-ins). */
+const ATTENTION_FAMILIES = [
+  'prompts', 'skills', 'worker_agents', 'guardrails', 'tool_policies', 'routing_policies',
+  'cost_policies', 'prompt_strategies', 'prompt_contracts', 'workflows',
+] as const;
 
 /** A review-queue item (a subset of the server's upgrade_details row). */
 interface ReviewItem {
@@ -31,6 +37,10 @@ interface ReviewItem {
 }
 interface ReviewQueue { items: ReviewItem[]; byPriority: Record<string, number>; byFamily: Record<string, number>; }
 
+/** A "needs attention" entry: a drifted and/or version-lagging record. */
+interface AttentionEntry { id: string; logicalKey: string; realm: string; state: string; currentVersion: number | null; latestVersion: number | null; lagging: boolean; }
+interface AttentionReport { family: string; entries: AttentionEntry[]; count: number; }
+
 /** Module-local state (rebuilt into the DOM on every `render()`), matching the other custom views' idiom. */
 interface UCState {
   status: Record<string, unknown> | null;   // last check status
@@ -39,10 +49,12 @@ interface UCState {
   queue: ReviewQueue | null;
   cursor: number;                            // selected review row
   lastResolved: string | null;              // detail id of the last resolve (for one-tap undo)
+  attentionFamily: string;                  // the family the attention report is scanning
+  attention: AttentionReport | null;
   busy: string;                              // a label while a request is in flight
   error: string | null;
 }
-const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, busy: '', error: null };
+const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, attentionFamily: 'skills', attention: null, busy: '', error: null };
 
 /** Priority → badge kind: P1 conflict/guardrail is a red 'diverged'; everything else amber 'stale'. */
 function priorityBadge(priority: string): HTMLElement {
@@ -179,6 +191,46 @@ function renderReview(render: () => void): HTMLElement {
   return section;
 }
 
+// ── needs attention ─────────────────────────────────────────────────────────────────────────────────────
+
+/** Load the "needs attention" report for the selected family. */
+async function loadAttention(render: () => void): Promise<void> {
+  S.busy = 'attention'; S.error = null; render();
+  try {
+    const resp = await api.get(`/admin/upgrade/attention?family=${encodeURIComponent(S.attentionFamily)}`);
+    S.attention = await resp.json() as AttentionReport;
+  } catch (err) {
+    S.error = `attention failed: ${(err as Error).message}`;
+  } finally {
+    S.busy = ''; render();
+  }
+}
+
+/** The "needs attention" section: a family picker + the drifted/lagging records with drift + lagging badges. */
+function renderAttention(render: () => void): HTMLElement {
+  const rep = S.attention;
+  return h('div', { className: 'uc-attention', 'data-uc-attention': '' },
+    h('div', { className: 'uc-review-head' },
+      h('strong', {}, 'Needs attention'),
+      h('select', {
+        'data-uc-attention-family': '', value: S.attentionFamily,
+        onchange: (e: Event) => { S.attentionFamily = (e.target as HTMLSelectElement).value; void loadAttention(render); },
+      }, ...ATTENTION_FAMILIES.map((f) => h('option', { value: f, selected: f === S.attentionFamily }, f))),
+      h('button', { 'data-uc-attention-load': '', onclick: () => void loadAttention(render) }, 'Scan'),
+      rep ? h('span', { className: 'uc-remaining', 'data-uc-attention-count': String(rep.count) }, `${rep.count} need attention`) : null,
+    ),
+    ...(rep
+      ? (rep.entries.length === 0
+          ? [h('div', { className: 'uc-empty' }, `Nothing in ${rep.family} needs attention.`)]
+          : rep.entries.map((e) => h('div', { className: 'uc-review-row', 'data-uc-attention-item': e.logicalKey },
+              realmBadge(e.state === 'diverged' ? 'diverged' : e.state === 'customized' ? 'customized' : 'stale', e.state),
+              h('span', { className: 'uc-key' }, e.logicalKey),
+              laggingBadge(e.currentVersion ?? 0, e.latestVersion ?? 0) ?? h('span', {}, ''),
+            )))
+      : [h('div', { className: 'uc-hint' }, 'Pick a family and Scan to see drifted or version-lagging records.')]),
+  );
+}
+
 /** Refocus the review container after a re-render so keyboard navigation keeps working. */
 function focusReview(): void {
   const el = document.querySelector('[data-uc-review]') as HTMLElement | null;
@@ -231,6 +283,7 @@ export function renderUpgradeCenterView(options: { render: () => void }): HTMLEl
     ),
     renderLayers(),
     renderReview(render),
+    renderAttention(render),
   );
   // Auto-focus the review queue so the keyboard model works immediately (and for the E2E).
   setTimeout(focusReview, 0);
