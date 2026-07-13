@@ -48,10 +48,16 @@ export function mergeWorkflowSteps(base: unknown, local: unknown, remote: unknow
 /** A structured-field merger as `realm-diff`'s autoMerge expects: returns the merged value + conflict keys. */
 export type StructuredFieldMerger = (base: unknown, local: unknown, remote: unknown) => { value: unknown; conflicts: string[] };
 
-/** Merge the `steps` field: JSON string in, JSON string out, per-node conflicts reported as `steps.<id>`. */
+/**
+ * Merge the `steps` field: accepts a JSON string or array, returns the merged node LIST (a parsed array, not a
+ * re-stringified string) so it hashes and stores exactly like every other semantic field the merge produces —
+ * `applyRealmMerge` re-baselines from that value, and drift re-hashes the row the same way, so a per-node merge
+ * settles cleanly to `in_sync`/`customized` rather than reading as still-diverged. Per-node conflicts are
+ * reported as `steps.<id>`.
+ */
 export const mergeStepsField: StructuredFieldMerger = (base, local, remote) => {
   const { steps, conflicts } = mergeWorkflowSteps(base, local, remote);
-  return { value: JSON.stringify(steps), conflicts: conflicts.map((c) => `steps.${c.id}`) };
+  return { value: steps, conflicts: conflicts.map((c) => `steps.${c.id}`) };
 };
 
 /**

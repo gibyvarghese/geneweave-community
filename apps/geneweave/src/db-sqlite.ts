@@ -1203,6 +1203,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const { seedReviewFixture } = await import('./upgrade-review-fixture.js');
     return seedReviewFixture(sqliteSqlClient(this.d), 'sqlite');
   }
+  /** Upgrade Engine — the "needs attention" report (drifted + version-lagging records) for a family. */
+  async upgradeAttention(family: string, tenantId?: string): Promise<import('./upgrade-attention.js').AttentionReport> {
+    const { attentionReport } = await import('./upgrade-attention.js');
+    return attentionReport(sqliteSqlClient(this.d), 'sqlite', family, tenantId != null ? { tenantId } : {});
+  }
 
   /**
    * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply

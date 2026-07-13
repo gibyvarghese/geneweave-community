@@ -253,4 +253,6 @@ export interface IAdminStore {
   undoUpgradeReviewItem?(detailId: string): Promise<import('../upgrade-review.js').ReviewResult>;
   /** Upgrade Engine — TEST-ONLY: seed a mixed review queue for the Upgrade Center E2E (gated by PLAYWRIGHT_E2E). */
   seedUpgradeReviewFixture?(): Promise<import('../upgrade-review-fixture.js').SeededReviewFixture>;
+  /** Upgrade Engine — the "needs attention" report (drifted + version-lagging records) for a family. */
+  upgradeAttention?(family: string, tenantId?: string): Promise<import('../upgrade-attention.js').AttentionReport>;
 }
