@@ -51,6 +51,17 @@ export function realmCellBadge(row: Record<string, unknown>): HTMLElement {
   return realmBadge('global', 'global');
 }
 
+/**
+ * The lagging-version badge: an amber "v{current} · v{latest} available" for a built-in that trails the
+ * shipped default (its live version is behind the latest published one). Returns null when it's current, so
+ * a caller can drop it into any admin list cell and only see it when the record actually lags. The Upgrade
+ * Center's adopt clears the lag; an undo brings it back — the badge tracks the truth either way.
+ */
+export function laggingBadge(current: number, latest: number): HTMLElement | null {
+  if (!Number.isFinite(current) || !Number.isFinite(latest) || current >= latest) return null;
+  return realmBadge('lagging', `v${current} · v${latest} available`);
+}
+
 /** Map a provenance `kind` (from a `/realm` endpoint) to a badge, or null for the plain global. */
 export function provenanceBadge(kind: string | undefined): HTMLElement | null {
   if (!kind || kind === 'global') return null;

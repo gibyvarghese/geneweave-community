@@ -9,6 +9,7 @@ import { renderKglCompetitionRunDetail, renderKglRunRowActions } from './kaggle-
 import { renderCapabilityMatrixView } from './capability-matrix-ui.js';
 import { renderRoutingSimulatorView } from './routing-simulator-ui.js';
 import { renderRealmView, realmCellBadge } from './realm-ui.js';
+import { renderUpgradeCenterView } from './upgrade-center-ui.js';
 import { renderToolApprovalView } from './tool-approval-ui.js';
 import { renderMCPGatewayClientsView } from './mcp-gateway-clients-ui.js';
 import { renderMCPGatewayActivityView } from './mcp-gateway-activity-ui.js';
@@ -969,6 +970,12 @@ export function renderAdminView(options: {
 
   if (schema?.customView === 'realm-workbench') {
     right.appendChild(renderRealmView({ render: options.render }));
+    page.appendChild(right);
+    return page;
+  }
+
+  if (schema?.customView === 'upgrade-center') {
+    right.appendChild(renderUpgradeCenterView({ render: options.render }));
     page.appendChild(right);
     return page;
   }

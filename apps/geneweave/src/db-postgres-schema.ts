@@ -2733,9 +2733,12 @@ CREATE TABLE IF NOT EXISTS "upgrade_details" (
   "resolution" TEXT,
   "resolved_at" TEXT,
   "resolved_by" TEXT,
+  "undo_json" TEXT,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   PRIMARY KEY ("id")
 );
+-- m173: captured pre-action state for an undoable review resolution (idempotent for existing DBs).
+ALTER TABLE "upgrade_details" ADD COLUMN IF NOT EXISTS "undo_json" TEXT;
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_run ON upgrade_details(run_id);
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_family_key ON upgrade_details(family, logical_key);
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_priority ON upgrade_details(priority);
