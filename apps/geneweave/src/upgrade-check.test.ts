@@ -5,7 +5,7 @@
  * Ed25519 keypair, so the whole path is exercised without touching GitHub.
  */
 import Database from 'better-sqlite3';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
@@ -14,7 +14,7 @@ import { buildManifest, createEd25519Verifier, type ReleaseSource, type Manifest
 import { createDatabaseAdapter, type DatabaseAdapter } from './db.js';
 import { sqliteSqlClient } from './realm-prompt-drift.js';
 import { checkForUpdate, parseTrustedKeys } from './upgrade-check.js';
-import { latestReleaseCheck } from './upgrade-release-store.js';
+
 
 const key = generateAttestationSigningKey();
 const otherKey = generateAttestationSigningKey();
@@ -38,11 +38,13 @@ describe('Upgrade Engine — the check command (real booted SQLite)', () => {
   const client = () => sqliteSqlClient(raw());
   const cfg = (source: ReleaseSource, extra = {}) => ({ source, verifier, edition: 'community', installedVersion: '1.0.0', ...extra });
 
-  beforeAll(async () => {
-    dbPath = join(tmpdir(), `check-${process.pid}-${Date.now()}.db`);
+  // A FRESH database per test — the anti-rollback floor is shared state (an accepted release raises it for
+  // every later check), so tests must not share a DB or they become order-dependent.
+  beforeEach(async () => {
+    dbPath = join(tmpdir(), `check-${process.pid}-${Date.now()}-${Math.floor(performance.now())}.db`);
     db = await createDatabaseAdapter({ type: 'sqlite', path: dbPath });
   });
-  afterAll(async () => { await db?.close?.(); try { rmSync(dbPath, { force: true }); } catch { /* ignore */ } });
+  afterEach(async () => { await db?.close?.(); for (const s of ['', '-wal', '-shm']) { try { rmSync(dbPath + s, { force: true }); } catch { /* ignore */ } } });
 
   it('SETUP: m169 created upgrade_releases', () => {
     expect(() => raw().prepare('SELECT count(*) FROM upgrade_releases').get()).not.toThrow();
@@ -51,30 +53,33 @@ describe('Upgrade Engine — the check command (real booted SQLite)', () => {
   it('POSITIVE: a newer, valid, same-edition release → update_available, persisted + accepted', async () => {
     const r = await checkForUpdate(client(), 'sqlite', cfg(source('2.0.0')));
     expect(r.status).toBe('update_available');
-    const row = await latestReleaseCheck(client(), 'sqlite');
-    expect(row?.version).toBe('2.0.0');
-    expect(row?.accepted).toBe(1);
-    expect(row?.manifest_json).toBeTruthy(); // manifest kept for an accepted release
+    // Query the 2.0.0 row directly (robust to test order — latestReleaseCheck depends on what ran last).
+    const row = raw().prepare(`SELECT * FROM upgrade_releases WHERE version = '2.0.0' AND accepted = 1 LIMIT 1`).get() as Record<string, unknown>;
+    expect(row?.['version']).toBe('2.0.0');
+    expect(row?.['accepted']).toBe(1);
+    expect(row?.['manifest_json']).toBeTruthy(); // manifest kept for an accepted release
   });
 
   it('ANTI-ROLLBACK FLOOR: after accepting 2.0.0, a replayed 1.5.0 is a downgrade (floor from history)', async () => {
-    // installedVersion is 1.0.0, but 2.0.0 was accepted above → floor is 2.0.0.
+    // Self-contained: accept 2.0.0 here (don't depend on another test's order) → the floor becomes 2.0.0.
+    await checkForUpdate(client(), 'sqlite', cfg(source('2.0.0')));
     const r = await checkForUpdate(client(), 'sqlite', cfg(source('1.5.0')));
     expect(r.floor).toBe('2.0.0');
     expect(r).toMatchObject({ status: 'rejected', reason: 'downgrade' });
-    const row = await latestReleaseCheck(client(), 'sqlite');
-    expect(row?.outcome).toBe('rejected');
-    expect(row?.accepted).toBe(0); // a rejected release does NOT raise the floor
+    const row = raw().prepare(`SELECT * FROM upgrade_releases WHERE version = '1.5.0'`).get() as Record<string, unknown>;
+    expect(row?.['outcome']).toBe('rejected');
+    expect(row?.['accepted']).toBe(0); // a rejected release does NOT raise the floor
   });
 
   it('a rejected (untrusted-key) release is recorded but never raises the floor', async () => {
+    // Establish an accepted 2.0.0 (self-contained), then a rejected untrusted 9.9.9.
+    await checkForUpdate(client(), 'sqlite', cfg(source('2.0.0')));
     await checkForUpdate(client(), 'sqlite', cfg(source('9.9.9', otherKey.privateKey))); // signed by untrusted key
-    // Query the specific row (checked_at is 1s-resolution, so latestReleaseCheck can't disambiguate here).
     const row = raw().prepare(`SELECT * FROM upgrade_releases WHERE version = '9.9.9'`).get() as Record<string, unknown>;
     expect(row).toMatchObject({ version: '9.9.9', outcome: 'rejected', reject_reason: 'untrusted_key', accepted: 0 });
-    // floor is still 2.0.0 — the untrusted 9.9.9 didn't count
-    const next = await checkForUpdate(client(), 'sqlite', cfg(source('2.0.0')));
-    expect(next.floor).toBe('2.0.0');
+    // The floor stays 2.0.0 — the untrusted 9.9.9 (accepted=0) doesn't count toward the anti-rollback floor.
+    const next = await checkForUpdate(client(), 'sqlite', cfg(source('2.5.0')));
+    expect(next.floor).toBe('2.0.0'); // max accepted so far is 2.0.0, not the rejected 9.9.9
   });
 
   it('EDITION MISMATCH: a release for another edition → rejected edition_mismatch (recorded)', async () => {
