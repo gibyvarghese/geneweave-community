@@ -132,6 +132,43 @@ The signing/verification, manifest schema, and release sources are the brand-neu
 [`@weaveintel/upgrade`](https://www.npmjs.com/package/@weaveintel/upgrade) package; geneWeave supplies the
 persistence, the resilient HTTP, and the admin route.
 
+## Preflight: is it safe to apply?
+
+Before applying an accepted release, a platform admin can run **preflight** (`POST /api/admin/upgrade/preflight`) —
+a set of read-only gates that answer "is it safe to apply this release *right now*?" without changing anything.
+You can run it any time, well ahead of a maintenance window, and fix what it flags in advance. It reports each
+gate with a pass/fail and a plain reason:
+
+| gate | passes when |
+|---|---|
+| **packages** | every platform package the release *requires* is installed at a satisfying version (it names any that are stale or missing — content and schema assume the matching library code, so a stale package is a hard blocker) |
+| **mutex** | no other upgrade operation currently holds the instance lock |
+| **disk** | enough free space on the database's volume for the pre-upgrade snapshot (a managed Postgres server's disk isn't observable from the app, so it's reported *skipped* rather than blocking) |
+| **unresolved&nbsp;P1** | no P1 review item from a prior run is still open (P1s are never auto-resolved, so they must be cleared first) |
+| **edition** | the release targets this instance's edition |
+
+Preflight only reads — SELECTs, a lock check, and filesystem probes; it never writes.
+
+## Preview: exactly what an apply would do
+
+**Preview** (`POST /api/admin/upgrade/preview`) is the read-only plan and the natural first step. It classifies
+every change the accepted release ships, across all four layers, and persists the plan as an upgrade run (mode
+`preview`) with one detail row per item — so the Upgrade Center can show "here's precisely what will happen"
+before you commit. It applies **nothing**: no package is installed, no migration runs, no seeded default is
+touched (a test asserts every content table is byte-for-byte identical afterwards; the only writes are the
+preview's own record).
+
+| layer | what preview shows |
+|---|---|
+| **L1 packages** | which required platform packages are stale (installed version doesn't satisfy the release) |
+| **L2 code** | the application-code tag the release targets; the running instance can't self-apply code (it ships via package/deploy), so this is reported as *requires deploy* |
+| **L3 schema** | which migration batches the release declares that aren't in this instance's ledger yet (would run) versus those already applied |
+| **L4 content** | for each shipped default, the three-way classification — using the **same live-row hashing** the boot-time reconcile uses (Base = the row's recorded `origin_hash`, Local = the live row hashed now, Remote = the manifest's declared hash) — so you see, per record, whether the release would auto-adopt it (*stale*), keep your edit (*customized*), or need a three-way merge (*diverged*), banded by the same P1–P5 priorities. A shipped family this build doesn't know yet is skipped, not an error. |
+
+The mutex is a single-row advisory lock (`upgrade_lock`): acquisition is a compare-and-set that both engines
+serialise on the one row, so exactly one upgrade operation runs at a time, and a lock abandoned by a crashed
+holder is reclaimable after a staleness window.
+
 ## Safety: the migration ledger and pre-upgrade snapshots
 
 - **Migration ledger.** Schema migrations are recorded in a `schema_migrations` ledger as they apply, keyed
@@ -168,7 +205,10 @@ already know still apply and are respected by the reconcile:
 | pre-upgrade snapshots | `apps/geneweave/src/upgrade-snapshot.ts` — re-exports from `@weaveintel/upgrade` |
 | release discovery + check | `apps/geneweave/src/upgrade-check.ts` — composes `@weaveintel/upgrade`'s `UpdateChecker` + resilient HTTP + vault token |
 | release audit + anti-rollback floor | `apps/geneweave/src/upgrade-release-store.ts`; `migrations/m169-upgrade-releases.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
-| admin check/status route | `apps/geneweave/src/admin/api/upgrade.ts` |
+| preflight gates | `apps/geneweave/src/upgrade-preflight.ts` |
+| read-only four-layer preview | `apps/geneweave/src/upgrade-preview.ts` — classifies via `@weaveintel/realm`'s `classifyDrift`, reusing the reconcile's live-row hashing |
+| advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
+| admin check/status/preflight/preview routes | `apps/geneweave/src/admin/api/upgrade.ts` |
 | workflow node/edge merge | `apps/geneweave/src/workflow-merge.ts` — wraps `mergeKeyedList` from `@weaveintel/upgrade` |
 | migration ledger + strict mode | `apps/geneweave/src/migrations/helpers.ts` |
 | ledger + run tables | `apps/geneweave/src/migrations/m163-upgrade-ledger.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |

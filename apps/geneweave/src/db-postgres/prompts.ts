@@ -178,6 +178,32 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return latestReleaseCheck(ctx as unknown as SqlClient, 'postgres');
     },
 
+    /** Upgrade Engine — read-only PREFLIGHT (Postgres). Mirror of the SQLite adapter method; see there. */
+    async runUpgradePreflight() {
+      const client = ctx as unknown as SqlClient;
+      const { latestAcceptedManifest } = await import('../upgrade-release-store.js');
+      const target = await latestAcceptedManifest(client, 'postgres');
+      if (!target) return { status: 'no_release' as const };
+      const { runPreflight } = await import('../upgrade-preflight.js');
+      const { getAppVersion } = await import('../upgrade-check.js');
+      // A managed Postgres server's disk isn't observable from the app → dbPath null (disk gate reports skipped).
+      return runPreflight(client, 'postgres', {
+        manifest: target.manifest, edition: process.env['GENEWEAVE_EDITION'] ?? 'community',
+        installedVersion: getAppVersion(), dbPath: null,
+      });
+    },
+
+    /** Upgrade Engine — read-only four-layer PREVIEW (Postgres). Mirror of the SQLite adapter method. */
+    async runUpgradePreview() {
+      const client = ctx as unknown as SqlClient;
+      const { latestAcceptedManifest } = await import('../upgrade-release-store.js');
+      const target = await latestAcceptedManifest(client, 'postgres');
+      if (!target) return { status: 'no_release' as const };
+      const { previewUpgrade } = await import('../upgrade-preview.js');
+      const { getAppVersion } = await import('../upgrade-check.js');
+      return previewUpgrade(client, 'postgres', { manifest: target.manifest, installedVersion: getAppVersion() });
+    },
+
     async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
       return setRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId, patch);
     },

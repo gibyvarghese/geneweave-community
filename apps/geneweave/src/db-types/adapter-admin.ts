@@ -235,4 +235,8 @@ export interface IAdminStore {
   runUpgradeCheck?(config: import('../upgrade-check.js').CheckConfig): Promise<import('../upgrade-check.js').CheckResult>;
   /** Upgrade Engine — the most recent release check, for the admin status view. */
   latestUpgradeReleaseCheck?(): Promise<import('../upgrade-release-store.js').UpgradeReleaseRow | null>;
+  /** Upgrade Engine — read-only preflight gates for the latest accepted release (or `{status:'no_release'}`). */
+  runUpgradePreflight?(): Promise<import('../upgrade-preflight.js').PreflightResult | { status: 'no_release' }>;
+  /** Upgrade Engine — read-only four-layer preview of the latest accepted release (or `{status:'no_release'}`). */
+  runUpgradePreview?(): Promise<import('../upgrade-preview.js').UpgradePreview | { status: 'no_release' }>;
 }

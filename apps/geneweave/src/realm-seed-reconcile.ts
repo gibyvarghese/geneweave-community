@@ -100,12 +100,44 @@ function semanticOf(spec: RealmFamilySpec, src: Record<string, unknown>): Record
 const hashRowLive = (spec: RealmFamilySpec, row: Record<string, unknown>): string => realmContentHash(semanticOf(spec, row));
 
 /**
+ * The content hash of a family row's CURRENT semantic columns — the reconcile's "Local" leg, computed live so
+ * an operator edit is always noticed. Exported so the read-only upgrade PREVIEW classifies a live row with the
+ * exact same hashing the write-path reconcile uses (no parallel copy that could drift out of agreement).
+ * @param spec the family's registry entry (its `semanticCols` define what's hashed).
+ * @param row a live DB row for that family.
+ * @returns the content hash string.
+ */
+export function hashLiveRealmRow(spec: RealmFamilySpec, row: Record<string, unknown>): string {
+  return hashRowLive(spec, row);
+}
+
+/**
  * The SQL that finds a family's GLOBAL row for a logical key. Mirrors the stored `logical_key` first
  * (a fork stores the canonical key there), falling back to the family's natural key column then id — the
  * same COALESCE the realm resolver uses, so seed reconcile and runtime resolution agree on identity.
  */
 function globalRowQuery(spec: RealmFamilySpec, dialect: SqlDialect): string {
   return `SELECT * FROM ${spec.table} WHERE realm = 'global' AND COALESCE(NULLIF(logical_key,''), ${spec.logicalKeyFrom}, id) = ${ph(dialect, 1)} LIMIT 1`;
+}
+
+/**
+ * Fetch a family's GLOBAL row for a logical key using the SAME identity resolution the reconcile and runtime
+ * resolver use (stored logical_key → natural key → id). Exported so the read-only preview reads the exact row
+ * the write-path would classify. Read-only.
+ * @param client the SqlClient (SQLite or Postgres).
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param spec the family's registry entry.
+ * @param logicalKey the logical key to look up.
+ * @returns the global row, or null if the family has no global row for that key.
+ */
+export async function fetchGlobalRealmRow(
+  client: SqlClient,
+  dialect: SqlDialect,
+  spec: RealmFamilySpec,
+  logicalKey: string,
+): Promise<Record<string, unknown> | null> {
+  const { rows } = await client.query(globalRowQuery(spec, dialect), [logicalKey]);
+  return (rows[0] as Record<string, unknown> | undefined) ?? null;
 }
 
 /** Overwrite a global row's semantic columns with the shipped default and re-baseline (Base=Local=Remote). */
