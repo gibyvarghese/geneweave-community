@@ -8,8 +8,8 @@
 import Database from 'better-sqlite3';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { rmSync, existsSync } from 'node:fs';
+import { join, basename } from 'node:path';
+import { rmSync, existsSync, readdirSync } from 'node:fs';
 import { buildManifest, type ManifestBody } from '@weaveintel/upgrade';
 import { generateAttestationSigningKey } from '@weaveintel/encryption';
 import { createDatabaseAdapter, type DatabaseAdapter } from './db.js';
@@ -41,7 +41,15 @@ describe('Upgrade Engine — verify auto-rollback + manual rollback (real booted
     db = await createDatabaseAdapter({ type: 'sqlite', path: dbPath });
     await db.seedReconcileRealm?.();
   });
-  afterEach(async () => { await db?.close?.(); for (const s of ['', '-wal', '-shm']) { try { rmSync(dbPath + s, { force: true }); } catch { /* ignore */ } } });
+  afterEach(async () => {
+    await db?.close?.();
+    for (const s of ['', '-wal', '-shm']) { try { rmSync(dbPath + s, { force: true }); } catch { /* ignore */ } }
+    // Remove this test's retained snapshots from the shared temp dir so they don't accumulate across the suite.
+    try {
+      const snapDir = join(tmpdir(), 'weaveintel-upgrade-snapshots');
+      for (const f of readdirSync(snapDir)) if (f.startsWith(basename(dbPath))) rmSync(join(snapDir, f), { force: true });
+    } catch { /* ignore */ }
+  });
 
   /** A real ApplyContext with verify + retention wired to real snapshot/restore ops. */
   const coreCtx = (over: Partial<ApplyContext> = {}): ApplyContext => ({
