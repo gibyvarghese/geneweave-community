@@ -4,6 +4,13 @@ export default defineConfig({
   test: {
     // Only run TypeScript source tests, not pre-compiled dist/ artifacts.
     include: ['src/**/*.{test,spec}.ts'],
+    // The default 5 s per-test / hook timeout is too tight for this suite's many booted-DB integration tests
+    // when it runs under load: up to 4 forks (below) each do heavy SQLite migration + snapshot I/O on a
+    // 2-core CI runner, so an I/O-bound test can momentarily exceed 5 s purely from contention (observed as
+    // flaky timeouts across unrelated tests, including on `main`). A generous global ceiling keeps those as
+    // correctness checks, not races; genuinely-hung tests still fail, just later.
+    testTimeout: 20000,
+    hookTimeout: 20000,
     // Forks pool serializes file-system writes (geneweave-tasks.json) across workers.
     pool: 'forks',
     poolOptions: {
