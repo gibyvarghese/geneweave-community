@@ -182,6 +182,53 @@ export interface UpgradeRunRow {
   summary_json: string;
   started_at: string;
   finished_at: string | null;
+  /** Path of the retained pre-upgrade snapshot (for `rollback --run <id>`); null once discarded. */
+  snapshot_ref: string | null;
+}
+
+/**
+ * Record (or clear) the retained pre-upgrade snapshot path for a run.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param runId the run to stamp.
+ * @param ref the snapshot artifact path, or null to clear it (after the snapshot is discarded).
+ * @returns nothing. Side effect: one UPDATE of upgrade_runs.
+ */
+export async function setRunSnapshotRef(client: SqlClient, dialect: SqlDialect, runId: string, ref: string | null): Promise<void> {
+  await client.query(`UPDATE upgrade_runs SET snapshot_ref = ${ph(dialect, 1)} WHERE id = ${ph(dialect, 2)}`, [ref, runId]);
+}
+
+/**
+ * Fetch one run by id.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param runId the run id.
+ * @returns the run row, or null if not found.
+ */
+export async function getUpgradeRun(client: SqlClient, dialect: SqlDialect, runId: string): Promise<UpgradeRunRow | null> {
+  const { rows } = await client.query(`SELECT * FROM upgrade_runs WHERE id = ${ph(dialect, 1)}`, [runId]);
+  return (rows[0] as unknown as UpgradeRunRow) ?? null;
+}
+
+/**
+ * List runs that still hold a retained snapshot (a non-null snapshot_ref), optionally excluding one run —
+ * the input to bounded retention (discard every older snapshot, keep the newest).
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param exceptRunId a run id to exclude (the one being kept); optional.
+ * @returns `{ id, snapshot_ref }` for each retained run.
+ */
+export async function listRetainedSnapshots(
+  client: SqlClient,
+  dialect: SqlDialect,
+  exceptRunId?: string,
+): Promise<Array<{ id: string; snapshot_ref: string }>> {
+  const where = exceptRunId ? ` AND id != ${ph(dialect, 1)}` : '';
+  const { rows } = await client.query(
+    `SELECT id, snapshot_ref FROM upgrade_runs WHERE snapshot_ref IS NOT NULL${where}`,
+    exceptRunId ? [exceptRunId] : [],
+  );
+  return rows as unknown as Array<{ id: string; snapshot_ref: string }>;
 }
 
 /**

@@ -7,7 +7,8 @@
  *   • GET  /api/admin/upgrade/status    — the most recent check.
  *   • POST /api/admin/upgrade/preflight — read-only gates on the latest accepted release (safe-to-apply?).
  *   • POST /api/admin/upgrade/preview   — read-only four-layer plan of what applying it would do (JSON).
- *   • POST /api/admin/upgrade/apply     — apply the latest accepted release (L1→L4, snapshot + rollback).
+ *   • POST /api/admin/upgrade/apply     — apply the latest accepted release (L1→L4, snapshot + verify + rollback).
+ *   • POST /api/admin/upgrade/rollback  — manually roll a run back to its retained pre-upgrade snapshot.
  *
  * Platform-admin only: discovering + trusting a release is a privileged, instance-wide operation. The route
  * is a thin shell over `checkForUpdate` (via the adapter, which supplies the SQL client) — it just assembles
@@ -108,6 +109,20 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
       json(res, 200, 'status' in result && result.status === 'no_release' ? { status: 'no_release', message: 'No accepted release to apply; run the check first.' } : result);
     } catch (err) {
       json(res, 502, { error: 'apply failed', detail: (err as Error).message });
+    }
+  });
+
+  // Manually roll a run back to its retained pre-upgrade snapshot. Mutating + privileged.
+  router.post('/api/admin/upgrade/rollback', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.runUpgradeRollback !== 'function') { json(res, 501, { error: 'rollback not supported by this adapter' }); return; }
+    let runId = '';
+    try { const raw = await readBody(req); if (raw) runId = String((JSON.parse(raw) as { runId?: unknown }).runId ?? ''); } catch { /* bad body → empty runId */ }
+    if (!runId) { json(res, 400, { error: 'runId is required' }); return; }
+    try {
+      json(res, 200, await db.runUpgradeRollback(runId));
+    } catch (err) {
+      json(res, 502, { error: 'rollback failed', detail: (err as Error).message });
     }
   });
 }

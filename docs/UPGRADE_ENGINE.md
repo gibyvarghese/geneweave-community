@@ -198,6 +198,32 @@ Two safety proofs the engine guarantees and the tests assert: an operator's **cu
 to the global reconcile by construction), and a **deferred** batch holds exactly its dependents until the code
 it needs is merged.
 
+## Verify and rollback
+
+Applying the changes isn't the finish line — the engine then **verifies** the instance actually works, and can
+**roll back** unattended if it doesn't. This closes the gap between "the upgrade applied" and "the upgrade is
+good."
+
+**Verify** runs right after the content layer, while the pre-upgrade snapshot is still held, and checks three
+things:
+
+| check | asserts |
+|---|---|
+| **readiness** | the database is reachable and the engine's own ledger tables are present |
+| **manifest invariants** | every non-deferred schema batch the release declared is applied; every content family it ships is a real family whose table exists; every required platform package is satisfied |
+| **`@upgrade-critical`** | an *optional* out-of-process smoke suite (e.g. the Playwright `@upgrade-critical` subset) — wired by the operator; absent means it's simply skipped |
+
+If any check fails, the apply **restores the pre-upgrade snapshot unattended** — the instance goes back exactly
+where it was — finishes the run `rolled_back`, and files a **P1 audit** item so the failure is visible and
+blocks the next apply until acknowledged. (A migration that fails mid-apply triggers the same restore even
+before verify runs.)
+
+A run that verifies cleanly **retains its snapshot** so it can still be reversed later if a problem only shows
+up in production. A platform admin rolls a specific run back with `POST /api/admin/upgrade/rollback` (`{ "runId": "…" }`):
+the engine restores that run's retained snapshot, marks it `rolled_back`, and files the audit. Retention is
+bounded — only the newest successful apply keeps its snapshot, so you can always undo the last upgrade; an
+older run whose snapshot was superseded reports `no_snapshot`.
+
 ## Safety: the migration ledger and pre-upgrade snapshots
 
 - **Migration ledger.** Schema migrations are recorded in a `schema_migrations` ledger as they apply, keyed
@@ -237,11 +263,13 @@ already know still apply and are respected by the reconcile:
 | preflight gates | `apps/geneweave/src/upgrade-preflight.ts` |
 | read-only four-layer preview | `apps/geneweave/src/upgrade-preview.ts` — classifies via `@weaveintel/realm`'s `classifyDrift`, reusing the reconcile's live-row hashing |
 | apply orchestration (L1→L4, snapshot/rollback, resume, deferral) | `apps/geneweave/src/upgrade-apply.ts` |
+| post-apply verify (readiness + invariants + `@upgrade-critical` hook) | `apps/geneweave/src/upgrade-verify.ts` |
+| manual rollback (`rollback --run <id>`) | `apps/geneweave/src/upgrade-rollback.ts`; retained-snapshot column `migrations/m172-upgrade-snapshot-ref.ts` |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
 | maintenance flag | `apps/geneweave/src/upgrade-maintenance.ts`; `migrations/m171-upgrade-maintenance.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
 | strict/ledgered L3 run (deferral-aware) | `runUpgradeMigrations` in `apps/geneweave/src/migrations/index.ts` |
 | pre-upgrade snapshot + restore | `apps/geneweave/src/upgrade-snapshot.ts` — re-exports `snapshotSqliteFile`/`snapshotPgDump` from `@weaveintel/upgrade` |
-| admin check/status/preflight/preview/apply routes | `apps/geneweave/src/admin/api/upgrade.ts` |
+| admin check/status/preflight/preview/apply/rollback routes | `apps/geneweave/src/admin/api/upgrade.ts` |
 | workflow node/edge merge | `apps/geneweave/src/workflow-merge.ts` — wraps `mergeKeyedList` from `@weaveintel/upgrade` |
 | migration ledger + strict mode | `apps/geneweave/src/migrations/helpers.ts` |
 | ledger + run tables | `apps/geneweave/src/migrations/m163-upgrade-ledger.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |

@@ -2712,8 +2712,11 @@ CREATE TABLE IF NOT EXISTS "upgrade_runs" (
   "summary_json" TEXT NOT NULL DEFAULT '{}',
   "started_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   "finished_at" TEXT,
+  "snapshot_ref" TEXT,
   PRIMARY KEY ("id")
 );
+-- m172: retained pre-upgrade snapshot path (idempotent for existing DBs where the table predates the column).
+ALTER TABLE "upgrade_runs" ADD COLUMN IF NOT EXISTS "snapshot_ref" TEXT;
 
 CREATE TABLE IF NOT EXISTS "upgrade_details" (
   "id" TEXT,

@@ -151,6 +151,7 @@ import { applyM168RealmColumnsCapabilityScores } from './m168-realm-columns-capa
 import { applyM169UpgradeReleases } from './m169-upgrade-releases.js';
 import { applyM170UpgradeLock } from './m170-upgrade-lock.js';
 import { applyM171UpgradeMaintenance } from './m171-upgrade-maintenance.js';
+import { applyM172UpgradeSnapshotRef } from './m172-upgrade-snapshot-ref.js';
 import { applyEncryption } from './encryption.js';
 import { createMigrationRunner } from './helpers.js';
 
@@ -310,6 +311,7 @@ const bootstrapRunner = createMigrationRunner([
   { id: 'm169-upgrade-releases', description: 'Upgrade Engine: upgrade_releases — one row per release manifest this instance has checked (what release, accepted or rejected + why, and the manifest for accepted ones). Doubles as the anti-rollback floor: max(version) among accepted releases, so a replayed old but validly-signed manifest can never force a downgrade. One new table, idempotent. Postgres via regenerated schema', run: applyM169UpgradeReleases },
   { id: 'm170-upgrade-lock', description: 'Upgrade Engine: upgrade_lock — a single-row advisory MUTEX (holder + acquired_at) so only one upgrade operation runs at a time on an instance. Acquisition is a compare-and-set UPDATE guarded on holder-free-or-stale plus a confirming SELECT; both engines serialise the guarded UPDATE on the one row so exactly one caller wins, and a stale lock left by a crashed holder is reclaimable. One new table, one seeded FREE row, idempotent. Postgres via regenerated schema', run: applyM170UpgradeLock },
   { id: 'm171-upgrade-maintenance', description: 'Upgrade Engine: upgrade_maintenance — a single-row flag the apply orchestrator raises while it mutates schema+content (the L1–L3 window) so the instance can shed user traffic during the risky part of an upgrade. Set active=1 with a reason before snapshot/migrate, cleared in a finally; an edge layer can read it to return 503s. One new table, one seeded INACTIVE row, idempotent. Postgres via regenerated schema', run: applyM171UpgradeMaintenance },
+  { id: 'm172-upgrade-snapshot-ref', description: 'Upgrade Engine: upgrade_runs.snapshot_ref — the path of the pre-upgrade snapshot a SUCCESSFUL apply retains so it can be rolled back on demand (rollback --run <id>). Phase-3 apply already snapshots+restores on an in-flight failure; this lets a run that succeeded but later proves bad still be reversed. Retention is bounded to the newest successful apply. One nullable column, idempotent (ADD COLUMN skipped if present). Postgres via regenerated schema', run: applyM172UpgradeSnapshotRef },
 ]);
 
 export function applySQLiteBootstrapMigrations(db: BetterSqlite3.Database): void {
