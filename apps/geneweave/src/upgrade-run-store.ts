@@ -148,6 +148,29 @@ export async function listUpgradeDetails(
   return rows as unknown as UpgradeDetailRow[];
 }
 
+/**
+ * Mark a detail row resolved — the review-queue write path (keep-mine / adopt-incoming / merged / deferred).
+ * A resolved P1 no longer blocks the next apply's `unresolved_p1` preflight gate. Idempotent by row id.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param detailId the upgrade_details row id to resolve.
+ * @param opts.resolution how it was resolved (e.g. 'kept' | 'adopted' | 'merged' | 'deferred').
+ * @param opts.resolvedBy who resolved it (a user id / 'automation'); optional.
+ * @param opts.at ISO timestamp override (tests); defaults to the DB clock.
+ * @returns nothing. Side effect: one UPDATE of upgrade_details.
+ */
+export async function resolveUpgradeDetail(
+  client: SqlClient,
+  dialect: SqlDialect,
+  detailId: string,
+  opts: { resolution: string; resolvedBy?: string | null; at?: string },
+): Promise<void> {
+  await client.query(
+    `UPDATE upgrade_details SET resolution = ${ph(dialect, 1)}, resolved_by = ${ph(dialect, 2)}, resolved_at = COALESCE(${ph(dialect, 3)}, ${nowExpr(dialect)}) WHERE id = ${ph(dialect, 4)}`,
+    [opts.resolution, opts.resolvedBy ?? null, opts.at ?? null, detailId],
+  );
+}
+
 /** A persisted upgrade_runs row (read shape). */
 export interface UpgradeRunRow {
   id: string;

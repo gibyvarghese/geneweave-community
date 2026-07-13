@@ -2767,6 +2767,15 @@ CREATE TABLE IF NOT EXISTS "upgrade_lock" (
 );
 INSERT INTO "upgrade_lock" ("id", "holder", "acquired_at") VALUES ('singleton', NULL, NULL) ON CONFLICT ("id") DO NOTHING;
 
+-- Upgrade Engine — single-row maintenance flag (m171). Raised by apply during the L1–L3 mutating window.
+CREATE TABLE IF NOT EXISTS "upgrade_maintenance" (
+  "id" TEXT PRIMARY KEY,
+  "active" BIGINT NOT NULL DEFAULT 0,
+  "reason" TEXT,
+  "since" TEXT
+);
+INSERT INTO "upgrade_maintenance" ("id", "active", "reason", "since") VALUES ('singleton', 0, NULL, NULL) ON CONFLICT ("id") DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS "recipe_configs" (
   "id" TEXT,
   "name" TEXT NOT NULL,

@@ -150,6 +150,7 @@ import { applyM167RealmColumnsTemplates } from './m167-realm-columns-templates.j
 import { applyM168RealmColumnsCapabilityScores } from './m168-realm-columns-capability-scores.js';
 import { applyM169UpgradeReleases } from './m169-upgrade-releases.js';
 import { applyM170UpgradeLock } from './m170-upgrade-lock.js';
+import { applyM171UpgradeMaintenance } from './m171-upgrade-maintenance.js';
 import { applyEncryption } from './encryption.js';
 import { createMigrationRunner } from './helpers.js';
 
@@ -308,6 +309,7 @@ const bootstrapRunner = createMigrationRunner([
   { id: 'm168-realm-columns-capability-scores', description: 'Converge model_capability_scores onto the STANDARD realm pattern (Tenancy Realm — full family). Rebuilds the table to drop the old inline UNIQUE(tenant_id, model_id, provider, task_key), preserving every column via PRAGMA table_info (no data loss), and adds the realm + deprecation columns; backfills owner_tenant_id = tenant_id (the canonical owner now; tenant_id kept in lockstep for back-compat), realm = global/tenant by ownership, logical_key = provider::model_id::task_key (the cell), content_hash over the CONFIG fields only (excludes auto-updating production signals), origin_hash baseline; adds the composite UNIQUE(logical_key, owner_tenant_id) + recreates the lookup indexes. So governance/drift/badges/seed-reconcile all treat capability scores like any family. Idempotent (skips rebuild once realm exists). Postgres via regenerated schema', run: applyM168RealmColumnsCapabilityScores },
   { id: 'm169-upgrade-releases', description: 'Upgrade Engine: upgrade_releases — one row per release manifest this instance has checked (what release, accepted or rejected + why, and the manifest for accepted ones). Doubles as the anti-rollback floor: max(version) among accepted releases, so a replayed old but validly-signed manifest can never force a downgrade. One new table, idempotent. Postgres via regenerated schema', run: applyM169UpgradeReleases },
   { id: 'm170-upgrade-lock', description: 'Upgrade Engine: upgrade_lock — a single-row advisory MUTEX (holder + acquired_at) so only one upgrade operation runs at a time on an instance. Acquisition is a compare-and-set UPDATE guarded on holder-free-or-stale plus a confirming SELECT; both engines serialise the guarded UPDATE on the one row so exactly one caller wins, and a stale lock left by a crashed holder is reclaimable. One new table, one seeded FREE row, idempotent. Postgres via regenerated schema', run: applyM170UpgradeLock },
+  { id: 'm171-upgrade-maintenance', description: 'Upgrade Engine: upgrade_maintenance — a single-row flag the apply orchestrator raises while it mutates schema+content (the L1–L3 window) so the instance can shed user traffic during the risky part of an upgrade. Set active=1 with a reason before snapshot/migrate, cleared in a finally; an edge layer can read it to return 503s. One new table, one seeded INACTIVE row, idempotent. Postgres via regenerated schema', run: applyM171UpgradeMaintenance },
 ]);
 
 export function applySQLiteBootstrapMigrations(db: BetterSqlite3.Database): void {
@@ -317,4 +319,24 @@ export function applySQLiteBootstrapMigrations(db: BetterSqlite3.Database): void
   // Lenient (not strict): `safeExec` still tolerates already-applied statements, matching legacy boot;
   // strict mode is reserved for upgrade runs.
   bootstrapRunner.run(db, { ledgered: true });
+}
+
+/**
+ * The L3 layer of an UPGRADE apply: run the not-yet-ledgered migration batches in STRICT mode (a failing
+ * statement throws so the orchestrator can restore the snapshot) — optionally EXCLUDING deferred batch ids
+ * whose L2 code dependency is unresolved (they stay pending and are picked up by a later apply once the code
+ * lands). Because the run is ledgered, it is inherently idempotent: a crash-resume re-runs it and every
+ * already-applied batch is skipped.
+ * @param db the SQLite database handle.
+ * @param opts.excludeIds batch ids to hold back this run (deferral); default none.
+ * @param opts.at ISO timestamp stamped on the ledger rows (tests).
+ * @returns `{ applied, skipped }` batch ids. Throws (strict) if any batch statement fails.
+ */
+export function runUpgradeMigrations(
+  db: BetterSqlite3.Database,
+  opts: { excludeIds?: ReadonlySet<string>; at?: string } = {},
+): { applied: string[]; skipped: string[] } {
+  const exclude = opts.excludeIds ?? new Set<string>();
+  const batches = bootstrapRunner.batches.filter((b) => !exclude.has(b.id));
+  return createMigrationRunner([...batches]).run(db, { ledgered: true, strict: true, ...(opts.at ? { at: opts.at } : {}) });
 }
