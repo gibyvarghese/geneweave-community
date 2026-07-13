@@ -9,6 +9,7 @@
  * the check module, since a SQL string `max` would order "10.0.0" below "9.0.0").
  */
 import { randomUUID } from 'node:crypto';
+import { parseManifest, type UpgradeManifest } from '@weaveintel/upgrade';
 import type { SqlClient, SqlDialect } from '@weaveintel/realm';
 import { ph, nowExpr } from './realm-sql.js';
 
@@ -82,4 +83,28 @@ export async function latestReleaseCheck(client: SqlClient, dialect: SqlDialect)
   void dialect;
   const { rows } = await client.query(`SELECT * FROM upgrade_releases ORDER BY checked_at DESC, id DESC LIMIT 1`);
   return (rows[0] as unknown as UpgradeReleaseRow) ?? null;
+}
+
+/**
+ * The manifest of the most recent ACCEPTED release — what preflight gates and the preview plan against. The
+ * stored JSON is re-validated through `parseManifest`, so a corrupted/tampered `manifest_json` surfaces as a
+ * throw rather than a half-typed object. Ordered by version (semver-max among accepted), falling back to the
+ * newest check; only accepted rows carry a manifest.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @returns the parsed manifest and its stored version, or null when nothing has been accepted yet.
+ */
+export async function latestAcceptedManifest(
+  client: SqlClient,
+  dialect: SqlDialect,
+): Promise<{ manifest: UpgradeManifest; version: string } | null> {
+  void dialect;
+  const { rows } = await client.query(
+    `SELECT version, manifest_json FROM upgrade_releases WHERE accepted = 1 AND manifest_json IS NOT NULL ORDER BY checked_at DESC, id DESC`,
+  );
+  if (rows.length === 0) return null;
+  // The newest accepted check is the intended target (the anti-rollback floor guarantees it's the highest we've
+  // ever accepted). Parse+validate its stored manifest before handing it to the planner.
+  const row = rows[0] as { version: string; manifest_json: string };
+  return { manifest: parseManifest(JSON.parse(row.manifest_json)), version: String(row.version) };
 }

@@ -2,9 +2,11 @@
 /**
  * Admin routes for the Upgrade Engine's `check` command.
  *
- *   • POST /api/admin/upgrade/check  — poll the release source, verify the manifest, record the outcome,
- *                                      and return it (update_available / up_to_date / rejected+reason / none).
- *   • GET  /api/admin/upgrade/status — the most recent check.
+ *   • POST /api/admin/upgrade/check     — poll the release source, verify the manifest, record the outcome,
+ *                                         and return it (update_available / up_to_date / rejected+reason / none).
+ *   • GET  /api/admin/upgrade/status    — the most recent check.
+ *   • POST /api/admin/upgrade/preflight — read-only gates on the latest accepted release (safe-to-apply?).
+ *   • POST /api/admin/upgrade/preview   — read-only four-layer plan of what applying it would do (JSON).
  *
  * Platform-admin only: discovering + trusting a release is a privileged, instance-wide operation. The route
  * is a thin shell over `checkForUpdate` (via the adapter, which supplies the SQL client) — it just assembles
@@ -56,5 +58,30 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
     if (!requirePlatformAdmin(res, auth)) return;
     const latest = typeof db.latestUpgradeReleaseCheck === 'function' ? await db.latestUpgradeReleaseCheck() : null;
     json(res, 200, { latest });
+  });
+
+  // Read-only preflight gates on the latest ACCEPTED release — is it safe to apply right now?
+  router.post('/api/admin/upgrade/preflight', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.runUpgradePreflight !== 'function') { json(res, 501, { error: 'preflight not supported by this adapter' }); return; }
+    try {
+      const result = await db.runUpgradePreflight();
+      // `no_release` (nothing accepted to gate) is a normal 200 outcome, not an error.
+      json(res, 200, 'status' in result ? { status: 'no_release', message: 'No accepted release to preflight; run the check first.' } : result);
+    } catch (err) {
+      json(res, 502, { error: 'preflight failed', detail: (err as Error).message });
+    }
+  });
+
+  // Read-only four-layer preview of the latest ACCEPTED release — what applying it would do (nothing applied).
+  router.post('/api/admin/upgrade/preview', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.runUpgradePreview !== 'function') { json(res, 501, { error: 'preview not supported by this adapter' }); return; }
+    try {
+      const result = await db.runUpgradePreview();
+      json(res, 200, 'status' in result ? { status: 'no_release', message: 'No accepted release to preview; run the check first.' } : result);
+    } catch (err) {
+      json(res, 502, { error: 'preview failed', detail: (err as Error).message });
+    }
   });
 }

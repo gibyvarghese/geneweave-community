@@ -1096,6 +1096,31 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return latestReleaseCheck(sqliteSqlClient(this.d), 'sqlite');
   }
 
+  /** Upgrade Engine — read-only PREFLIGHT gates for the latest accepted release (or `no_release`). */
+  async runUpgradePreflight(): Promise<import('./upgrade-preflight.js').PreflightResult | { status: 'no_release' }> {
+    const client = sqliteSqlClient(this.d);
+    const { latestAcceptedManifest } = await import('./upgrade-release-store.js');
+    const target = await latestAcceptedManifest(client, 'sqlite');
+    if (!target) return { status: 'no_release' };
+    const { runPreflight } = await import('./upgrade-preflight.js');
+    const { getAppVersion } = await import('./upgrade-check.js');
+    return runPreflight(client, 'sqlite', {
+      manifest: target.manifest, edition: process.env['GENEWEAVE_EDITION'] ?? 'community',
+      installedVersion: getAppVersion(), dbPath: this.path,
+    });
+  }
+
+  /** Upgrade Engine — read-only four-layer PREVIEW of the latest accepted release (or `no_release`). */
+  async runUpgradePreview(): Promise<import('./upgrade-preview.js').UpgradePreview | { status: 'no_release' }> {
+    const client = sqliteSqlClient(this.d);
+    const { latestAcceptedManifest } = await import('./upgrade-release-store.js');
+    const target = await latestAcceptedManifest(client, 'sqlite');
+    if (!target) return { status: 'no_release' };
+    const { previewUpgrade } = await import('./upgrade-preview.js');
+    const { getAppVersion } = await import('./upgrade-check.js');
+    return previewUpgrade(client, 'sqlite', { manifest: target.manifest, installedVersion: getAppVersion() });
+  }
+
   async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
     return setRealmState(sqliteSqlClient(this.d), 'sqlite', family, logicalKey, tenantId, patch);
   }

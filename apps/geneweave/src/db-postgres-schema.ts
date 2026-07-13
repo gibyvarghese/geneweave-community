@@ -2758,6 +2758,15 @@ CREATE TABLE IF NOT EXISTS "upgrade_releases" (
 CREATE INDEX IF NOT EXISTS idx_upgrade_releases_accepted ON upgrade_releases(accepted, version);
 CREATE INDEX IF NOT EXISTS idx_upgrade_releases_checked ON upgrade_releases(checked_at);
 
+-- Upgrade Engine — single-row advisory MUTEX (m170). One 'singleton' row; holder NULL = free. Acquisition is
+-- a compare-and-set UPDATE guarded on holder-free-or-stale + a confirming SELECT (see upgrade-lock-store.ts).
+CREATE TABLE IF NOT EXISTS "upgrade_lock" (
+  "id" TEXT PRIMARY KEY,
+  "holder" TEXT,
+  "acquired_at" TEXT
+);
+INSERT INTO "upgrade_lock" ("id", "holder", "acquired_at") VALUES ('singleton', NULL, NULL) ON CONFLICT ("id") DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS "recipe_configs" (
   "id" TEXT,
   "name" TEXT NOT NULL,
