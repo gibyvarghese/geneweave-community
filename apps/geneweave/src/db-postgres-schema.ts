@@ -2773,6 +2773,15 @@ CREATE TABLE IF NOT EXISTS "upgrade_lock" (
 );
 INSERT INTO "upgrade_lock" ("id", "holder", "acquired_at") VALUES ('singleton', NULL, NULL) ON CONFLICT ("id") DO NOTHING;
 
+-- Upgrade Engine — stored per-file source baseline (m174) for the L2 code scan on a non-git install.
+CREATE TABLE IF NOT EXISTS "upgrade_code_baseline" (
+  "id" TEXT PRIMARY KEY,
+  "manifest_json" TEXT,
+  "digest" TEXT,
+  "captured_at" TEXT
+);
+INSERT INTO "upgrade_code_baseline" ("id", "manifest_json", "digest", "captured_at") VALUES ('singleton', NULL, NULL, NULL) ON CONFLICT ("id") DO NOTHING;
+
 -- Upgrade Engine — single-row maintenance flag (m171). Raised by apply during the L1–L3 mutating window.
 CREATE TABLE IF NOT EXISTS "upgrade_maintenance" (
   "id" TEXT PRIMARY KEY,

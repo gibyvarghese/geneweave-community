@@ -153,6 +153,7 @@ import { applyM170UpgradeLock } from './m170-upgrade-lock.js';
 import { applyM171UpgradeMaintenance } from './m171-upgrade-maintenance.js';
 import { applyM172UpgradeSnapshotRef } from './m172-upgrade-snapshot-ref.js';
 import { applyM173UpgradeDetailUndo } from './m173-upgrade-detail-undo.js';
+import { applyM174UpgradeCodeBaseline } from './m174-upgrade-code-baseline.js';
 import { applyEncryption } from './encryption.js';
 import { createMigrationRunner } from './helpers.js';
 
@@ -314,6 +315,7 @@ const bootstrapRunner = createMigrationRunner([
   { id: 'm171-upgrade-maintenance', description: 'Upgrade Engine: upgrade_maintenance — a single-row flag the apply orchestrator raises while it mutates schema+content (the L1–L3 window) so the instance can shed user traffic during the risky part of an upgrade. Set active=1 with a reason before snapshot/migrate, cleared in a finally; an edge layer can read it to return 503s. One new table, one seeded INACTIVE row, idempotent. Postgres via regenerated schema', run: applyM171UpgradeMaintenance },
   { id: 'm172-upgrade-snapshot-ref', description: 'Upgrade Engine: upgrade_runs.snapshot_ref — the path of the pre-upgrade snapshot a SUCCESSFUL apply retains so it can be rolled back on demand (rollback --run <id>). Phase-3 apply already snapshots+restores on an in-flight failure; this lets a run that succeeded but later proves bad still be reversed. Retention is bounded to the newest successful apply. One nullable column, idempotent (ADD COLUMN skipped if present). Postgres via regenerated schema', run: applyM172UpgradeSnapshotRef },
   { id: 'm173-upgrade-detail-undo', description: 'Upgrade Engine: upgrade_details.undo_json — the captured pre-action state (semantic cols + content_hash + origin_hash) that makes a review-queue "adopt incoming" resolution undoable. Undo restores the snapshot verbatim and re-opens the item; keep/defer store nothing. One nullable column, idempotent (ADD COLUMN skipped if present). Postgres via regenerated schema', run: applyM173UpgradeDetailUndo },
+  { id: 'm174-upgrade-code-baseline', description: 'Upgrade Engine: upgrade_code_baseline — the stored per-file source baseline (L2 identity) of the installed application code, as a source_baselines manifest (path → SRI) + digest. BASE for the L2 three-way code scan on a non-git install: code status hashes the live tree and compares here; an upgrade compares against the release target. One single-row table, seeded empty, idempotent. Postgres via regenerated schema', run: applyM174UpgradeCodeBaseline },
 ]);
 
 export function applySQLiteBootstrapMigrations(db: BetterSqlite3.Database): void {
