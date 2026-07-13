@@ -169,6 +169,35 @@ The mutex is a single-row advisory lock (`upgrade_lock`): acquisition is a compa
 serialise on the one row, so exactly one upgrade operation runs at a time, and a lock abandoned by a crashed
 holder is reclaimable after a staleness window.
 
+## Applying a release
+
+**Apply** (`POST /api/admin/upgrade/apply`) is the mutating step: it runs the four layers in order (L1 → L2 →
+L3 → L4), each gating the next, under the mutex and a pre-upgrade snapshot, and records everything it does as an
+`apply` run with per-item detail rows. It raises the **maintenance flag** for the mutating window, and clears it
+when done.
+
+The engine deliberately splits *deploy* from *data*. A running server can't npm-install and hot-swap its own
+dependencies (L1) or git-merge and typecheck its own source (L2) — those produce the artifact the server runs.
+So you deploy the new packages and code, then apply brings the **data plane** into line with them:
+
+| layer | what apply does |
+|---|---|
+| **L1 packages** | preflight has already verified the required packages are present; apply records them |
+| **L2 code** | records the target code tag; the L2 mode is chosen by edition — **`merge`** (Community: upstream is merged per-file) or **`locked`** (Private: the vendor tree is swapped wholesale). An unresolved merge conflict **defers** the schema batches that depend on that file |
+| **L3 schema** | runs the not-yet-applied migration batches in **strict** mode — a failing statement aborts and restores the snapshot rather than leaving a half-applied schema. Deferred batches stay pending for a later apply once their code lands |
+| **L4 content** | the registry reconcile (the same one that runs at boot) under this run: safe changes adopt, your edits are kept, genuine conflicts are flagged. Families whose schema was deferred are held back |
+
+Apply is **item-granular**: it finishes `succeeded`, or `succeeded_with_pending` when it applied cleanly but
+left review items (a genuine conflict, a collision, a deferral) — those never hold the whole upgrade hostage.
+If an L3 batch fails, the snapshot is restored and the run finishes `rolled_back`. Because L3 is ledgered and
+L4 is content-addressed, a crash mid-apply is safe to **resume**: re-running continues the same `running` run
+and every already-applied batch or adopted record is skipped — nothing is applied twice.
+
+Two safety proofs the engine guarantees and the tests assert: an operator's **customized** records and every
+**tenant-owned** row are byte-for-byte identical after an apply (your edits are kept; tenant rows are invisible
+to the global reconcile by construction), and a **deferred** batch holds exactly its dependents until the code
+it needs is merged.
+
 ## Safety: the migration ledger and pre-upgrade snapshots
 
 - **Migration ledger.** Schema migrations are recorded in a `schema_migrations` ledger as they apply, keyed
@@ -207,8 +236,12 @@ already know still apply and are respected by the reconcile:
 | release audit + anti-rollback floor | `apps/geneweave/src/upgrade-release-store.ts`; `migrations/m169-upgrade-releases.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
 | preflight gates | `apps/geneweave/src/upgrade-preflight.ts` |
 | read-only four-layer preview | `apps/geneweave/src/upgrade-preview.ts` — classifies via `@weaveintel/realm`'s `classifyDrift`, reusing the reconcile's live-row hashing |
+| apply orchestration (L1→L4, snapshot/rollback, resume, deferral) | `apps/geneweave/src/upgrade-apply.ts` |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
-| admin check/status/preflight/preview routes | `apps/geneweave/src/admin/api/upgrade.ts` |
+| maintenance flag | `apps/geneweave/src/upgrade-maintenance.ts`; `migrations/m171-upgrade-maintenance.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |
+| strict/ledgered L3 run (deferral-aware) | `runUpgradeMigrations` in `apps/geneweave/src/migrations/index.ts` |
+| pre-upgrade snapshot + restore | `apps/geneweave/src/upgrade-snapshot.ts` — re-exports `snapshotSqliteFile`/`snapshotPgDump` from `@weaveintel/upgrade` |
+| admin check/status/preflight/preview/apply routes | `apps/geneweave/src/admin/api/upgrade.ts` |
 | workflow node/edge merge | `apps/geneweave/src/workflow-merge.ts` — wraps `mergeKeyedList` from `@weaveintel/upgrade` |
 | migration ledger + strict mode | `apps/geneweave/src/migrations/helpers.ts` |
 | ledger + run tables | `apps/geneweave/src/migrations/m163-upgrade-ledger.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |

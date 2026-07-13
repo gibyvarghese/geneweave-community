@@ -204,6 +204,42 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return previewUpgrade(client, 'postgres', { manifest: target.manifest, installedVersion: getAppVersion() });
     },
 
+    /**
+     * Upgrade Engine — APPLY (Postgres). Mirror of the SQLite adapter method, with the two dialect-specific
+     * differences: L3 is the DECLARATIVE schema (re-running the idempotent `POSTGRES_FULL_SCHEMA` picks up new
+     * tables/columns — Postgres has no per-batch ledger, so deferral is a SQLite-only concern), and rollback
+     * replays a `pg_dump` via `psql` without a reconnect. The snapshot needs a connection string (from
+     * `DATABASE_URL`); without one it degrades to a no-op snapshot (the declarative L3 is idempotent).
+     */
+    async runUpgradeApply(opts: { force?: boolean; unresolvedCodePaths?: string[] } = {}) {
+      const client = ctx as unknown as SqlClient;
+      const { latestAcceptedManifest } = await import('../upgrade-release-store.js');
+      const target = await latestAcceptedManifest(client, 'postgres');
+      if (!target) return { status: 'no_release' as const };
+      const { applyUpgrade } = await import('../upgrade-apply.js');
+      const { collectRealmSeedDefaults } = await import('../realm-seed-defaults.js');
+      const { getAppVersion } = await import('../upgrade-check.js');
+      const { POSTGRES_FULL_SCHEMA } = await import('../db-postgres-schema.js');
+      const { snapshotPgDump } = await import('../upgrade-snapshot.js');
+      const connStr = process.env['DATABASE_URL'];
+      const noopSnapshot = { ref: '', restore: async () => {}, discard: async () => {} };
+      return applyUpgrade({
+        client: () => client,
+        dialect: 'postgres',
+        manifest: target.manifest,
+        installedVersion: getAppVersion(),
+        edition: process.env['GENEWEAVE_EDITION'] ?? 'community',
+        dbPath: null, // managed volume; disk gate skips
+        unresolvedCodePaths: opts.unresolvedCodePaths ?? [],
+        defaults: collectRealmSeedDefaults(),
+        ...(opts.force ? { force: true } : {}),
+        snapshot: () => (connStr ? snapshotPgDump(connStr, { label: 'apply' }) : noopSnapshot),
+        // Postgres L3 = re-apply the declarative schema (idempotent). Deferral (SQLite batch-level) does not apply.
+        runSchema: async () => { await client.query(POSTGRES_FULL_SCHEMA); return { applied: ['postgres-schema'], skipped: [] }; },
+        rollback: async (handle) => { await handle.restore(); }, // psql replay; the pool connection is unaffected
+      });
+    },
+
     async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
       return setRealmState(ctx as unknown as SqlClient, 'postgres', family, logicalKey, tenantId, patch);
     },

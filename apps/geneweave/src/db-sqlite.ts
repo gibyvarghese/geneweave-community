@@ -1121,6 +1121,48 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return previewUpgrade(client, 'sqlite', { manifest: target.manifest, installedVersion: getAppVersion() });
   }
 
+  /**
+   * Upgrade Engine — APPLY the latest accepted release (L1 report → L2 policy/defer → L3 strict migrate → L4
+   * reconcile), under a mutex + pre-upgrade snapshot with automatic rollback on an L3 failure. The snapshot,
+   * the SQLite batch runner, and the restore (which closes/reopens the write connection) are supplied here;
+   * the dialect-neutral orchestration lives in `applyUpgrade`.
+   * @param opts.force skip preflight gating; opts.unresolvedCodePaths L2 conflicts from the out-of-band merge.
+   * @returns the apply result, or `{status:'no_release'}` if nothing has been accepted to apply.
+   */
+  async runUpgradeApply(opts: { force?: boolean; unresolvedCodePaths?: string[] } = {}): Promise<import('./upgrade-apply.js').ApplyResult | { status: 'no_release' }> {
+    const { latestAcceptedManifest } = await import('./upgrade-release-store.js');
+    if (!(await latestAcceptedManifest(sqliteSqlClient(this.d), 'sqlite'))) return { status: 'no_release' };
+    const target = (await latestAcceptedManifest(sqliteSqlClient(this.d), 'sqlite'))!;
+    const { applyUpgrade } = await import('./upgrade-apply.js');
+    const { snapshotSqliteFile } = await import('./upgrade-snapshot.js');
+    const { runUpgradeMigrations } = await import('./migrations/index.js');
+    const { collectRealmSeedDefaults } = await import('./realm-seed-defaults.js');
+    const { getAppVersion } = await import('./upgrade-check.js');
+    const BetterSqlite3 = (await import('better-sqlite3')).default;
+    return applyUpgrade({
+      client: () => sqliteSqlClient(this.d),
+      dialect: 'sqlite',
+      manifest: target.manifest,
+      installedVersion: getAppVersion(),
+      edition: process.env['GENEWEAVE_EDITION'] ?? 'community',
+      dbPath: this.path,
+      unresolvedCodePaths: opts.unresolvedCodePaths ?? [],
+      defaults: collectRealmSeedDefaults(),
+      ...(opts.force ? { force: true } : {}),
+      snapshot: () => snapshotSqliteFile(this.d, this.path, { label: 'apply' }),
+      runSchema: async (deferred) => runUpgradeMigrations(this.d, { excludeIds: deferred }),
+      rollback: async (handle) => {
+        // SQLite restore overwrites the DB file — the write connection MUST be closed first, then reopened.
+        this.db?.close();
+        await handle.restore();
+        this.db = new BetterSqlite3(this.path);
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('foreign_keys = ON');
+        this.encStore = new SqliteEncryptionStore(this.db);
+      },
+    });
+  }
+
   async setRealmState(family: string, logicalKey: string, tenantId: string, patch: Partial<import('@weaveintel/realm').RealmStateOverlay>) {
     return setRealmState(sqliteSqlClient(this.d), 'sqlite', family, logicalKey, tenantId, patch);
   }

@@ -7,6 +7,7 @@
  *   • GET  /api/admin/upgrade/status    — the most recent check.
  *   • POST /api/admin/upgrade/preflight — read-only gates on the latest accepted release (safe-to-apply?).
  *   • POST /api/admin/upgrade/preview   — read-only four-layer plan of what applying it would do (JSON).
+ *   • POST /api/admin/upgrade/apply     — apply the latest accepted release (L1→L4, snapshot + rollback).
  *
  * Platform-admin only: discovering + trusting a release is a privileged, instance-wide operation. The route
  * is a thin shell over `checkForUpdate` (via the adapter, which supplies the SQL client) — it just assembles
@@ -26,7 +27,7 @@ const isPlatformAdmin = (auth: AuthContext): boolean => auth.persona === 'platfo
  * @param helpers admin helpers (`json`).
  */
 export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, helpers: AdminHelpers): void {
-  const { json } = helpers;
+  const { json, readBody } = helpers;
 
   const requirePlatformAdmin = (res: Parameters<typeof json>[0], auth: AuthContext | null): auth is AuthContext => {
     if (!auth) { json(res, 401, { error: 'Not authenticated' }); return false; }
@@ -82,6 +83,31 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
       json(res, 200, 'status' in result ? { status: 'no_release', message: 'No accepted release to preview; run the check first.' } : result);
     } catch (err) {
       json(res, 502, { error: 'preview failed', detail: (err as Error).message });
+    }
+  });
+
+  // APPLY the latest ACCEPTED release (L1→L4, snapshot + rollback). Mutating + privileged.
+  router.post('/api/admin/upgrade/apply', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.runUpgradeApply !== 'function') { json(res, 501, { error: 'apply not supported by this adapter' }); return; }
+    // Optional { force?, unresolvedCodePaths? } body; a malformed body is treated as no options, never a crash.
+    let opts: { force?: boolean; unresolvedCodePaths?: string[] } = {};
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const b = JSON.parse(raw) as { force?: unknown; unresolvedCodePaths?: unknown };
+        opts = {
+          force: b.force === true,
+          unresolvedCodePaths: Array.isArray(b.unresolvedCodePaths) ? b.unresolvedCodePaths.filter((p): p is string => typeof p === 'string') : [],
+        };
+      }
+    } catch { /* malformed body → default options */ }
+    try {
+      const result = await db.runUpgradeApply(opts);
+      // A blocked apply (preflight_failed / busy / no_release) is a normal 200 outcome the operator acts on.
+      json(res, 200, 'status' in result && result.status === 'no_release' ? { status: 'no_release', message: 'No accepted release to apply; run the check first.' } : result);
+    } catch (err) {
+      json(res, 502, { error: 'apply failed', detail: (err as Error).message });
     }
   });
 }
