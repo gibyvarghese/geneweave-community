@@ -74,7 +74,7 @@ describe('Upgrade Engine — read-only preview (real booted SQLite)', () => {
     }
     expect(picked.length).toBe(4); // the "≥4 families" exit criterion
 
-    const [F_INSYNC, F_STALE, F_CUST, F_DIV] = picked;
+    const F_INSYNC = picked[0]!, F_STALE = picked[1]!, F_CUST = picked[2]!, F_DIV = picked[3]!;
     // Stage each family's baseline so classifyDrift(base, local, remote) yields the target state:
     setOrigin(F_INSYNC.spec, String(F_INSYNC.row['id']), F_INSYNC.local);      // in_sync: base=local, remote=local
     setOrigin(F_STALE.spec, String(F_STALE.row['id']), F_STALE.local);          // stale:   base=local, remote≠local
