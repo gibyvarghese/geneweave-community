@@ -47,7 +47,7 @@ describe('L2 Private-edition patch reapply', () => {
       { path: 'conflict.ts', baseline: 'a\nb', edited: 'a\nMINE' },
     ];
     const vendor: Record<string, string | null> = { 'clean.ts': 'a\nb', 'conflict.ts': 'a\nTHEIRS' };
-    const set = reapplyPatchSet(patches, (p) => vendor[p]);
+    const set = reapplyPatchSet(patches, (p) => vendor[p] ?? null);
     expect(set.cleanCount).toBe(1);
     expect(set.conflicts).toEqual(['conflict.ts']);
   });
@@ -65,7 +65,7 @@ describe('L2 Private-edition patch reapply', () => {
       const runId = await beginUpgradeRun(client(), 'sqlite', { mode: 'preview', toVersion: 'patch' });
       const set = reapplyPatchSet(
         [{ path: 'clean.ts', baseline: 'a\nb', edited: 'A\nb' }, { path: 'bad.ts', baseline: 'a\nb', edited: 'a\nMINE' }],
-        (p) => ({ 'clean.ts': 'a\nb', 'bad.ts': 'a\nTHEIRS' } as Record<string, string | null>)[p],
+        (p) => ({ 'clean.ts': 'a\nb', 'bad.ts': 'a\nTHEIRS' } as Record<string, string | null>)[p] ?? null,
       );
       const recorded = await recordPatchConflicts(client(), 'sqlite', runId, set);
       expect(recorded).toBe(1); // only the conflict is recorded (clean reapplies just apply)
