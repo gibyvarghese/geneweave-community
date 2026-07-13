@@ -34,4 +34,34 @@ jobs:
           # pooled connections (which surfaces a FATAL 57P01 as an unhandled error). Runner VMs are
           # ephemeral, so nothing leaks.
           TESTCONTAINERS_RYUK_DISABLED: "true"
-      # Playwright e2e need a running server — add a dedicated job as the app grows.
+
+  # Playwright E2E — the @upgrade-critical subset, run against a real server (deploy/server.ts) on a fresh
+  # SQLite DB with the built-in `mock` provider, so it needs no API keys. Boots its own server via the
+  # Playwright config's managed webServer.
+  e2e-upgrade-critical:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (pulls @weaveintel/* from npm)
+        run: npm install --no-audit --no-fund
+
+      - name: Build (compiles the admin UI the server serves)
+        run: npx turbo build
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/geneweave
+
+      - name: Upgrade Center E2E (@upgrade-critical)
+        run: npx playwright test --grep "@upgrade-critical" --config playwright.config.ts
+        working-directory: apps/geneweave
+        env:
+          JWT_SECRET: ci-e2e-secret
+          DEFAULT_PROVIDER: mock
+          DEFAULT_MODEL: mock-model

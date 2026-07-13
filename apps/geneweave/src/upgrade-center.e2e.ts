@@ -60,6 +60,10 @@ test('@upgrade-critical Upgrade Center — a mixed queue is resolved entirely by
   const H = { 'x-csrf-token': await csrf(page), 'content-type': 'application/json' };
   const origin0 = new URL('/', page.url()).origin || (await page.evaluate(() => location.origin));
 
+  // A self-registered user is tenant_admin; the upgrade routes require platform_admin. Promote (E2E-only;
+  // auth reads persona fresh from the DB, so the next request already sees it).
+  await page.request.post(`${origin0}/api/admin/upgrade/_test/promote-admin`, { headers: H, data: {} });
+
   // Seed the mixed queue (diverged skill + P1 + two P3s).
   const seed = await (await page.request.post(`${origin0}/api/admin/upgrade/_test/seed-review`, { headers: H, data: {} })).json() as { seeded: number; skillKey: string };
   expect(seed.seeded).toBe(4);
