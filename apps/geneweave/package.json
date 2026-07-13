@@ -76,7 +76,8 @@
     "better-sqlite3": "^11.9.1",
     "node-diff3": "^3.2.1",
     "pg": "^8.13.0",
-    "redis": "^4.7.0"
+    "redis": "^4.7.0",
+    "ssri": "^13.0.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
