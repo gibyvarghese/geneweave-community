@@ -74,7 +74,7 @@ describe('Upgrade Engine — verify auto-rollback + manual rollback (real booted
     expect(r.status).toBe('rolled_back');
     expect(r.verify?.ok).toBe(false);
     expect(tableExists('verify_rollback_marker')).toBe(false); // the snapshot restore reverted the L3 change
-    expect(getUpgradeRun(client(), 'sqlite', r.runId!)).resolves.toMatchObject({ status: 'rolled_back' });
+    expect(await getUpgradeRun(client(), 'sqlite', r.runId!)).toMatchObject({ status: 'rolled_back' });
     const p1 = raw().prepare(`SELECT * FROM upgrade_details WHERE run_id=? AND family='verify' AND priority='P1'`).all(r.runId);
     expect(p1.length).toBe(1);
   });
