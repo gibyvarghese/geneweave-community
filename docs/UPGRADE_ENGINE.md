@@ -355,14 +355,19 @@ There are two ways to resolve a both-changed file, matching the two editions:
   edit, new vendor), so a patch whose lines the vendor also changed becomes a conflict in the review queue (a
   P1) — never silently dropped, and your edit is never silently lost.
 
-**In-app merge editor.** The Upgrade Center's **Code** section resolves a conflict without leaving the app: it
-lists the `family='code'` conflicts, and opening one shows a two-pane split (a bundled `@codemirror/merge` view)
-— the incoming release version on the left (read-only) and the base-informed diff3 pre-merge on the right
-(editable). You resolve the markers and click *Apply resolution*; the server **refuses** any text still carrying
-conflict markers (so it can never clear the L3 gate for a still-conflicted file) and writes the resolution to
-the working tree. The three text sides are sourced from git (LOCAL on disk; BASE at the installed ref; REMOTE at
-the release's `repoTag`), so the in-app editor works on a **Community git install**; where those refs aren't
-available (a non-git deploy, or no accepted release yet) it says so and points you at the git branch above.
+**In-app merge editor.** The Upgrade Center's **Code** section resolves a conflict without leaving the app.
+*Scan release* runs a three-way scan of the live tree against the accepted release's git refs (BASE = the
+installed tag, REMOTE = the release's `repoTag`) and records every genuine both-changed file as a `family='code'`
+conflict (P1). Opening one shows a two-pane split (a bundled `@codemirror/merge` view modeled on the merge
+editors operators expect): the **incoming release version on the left** (read-only) and the **base-informed
+diff3 pre-merge on the right** (editable) — clean hunks already applied, only true conflicts left as markers.
+Per-chunk **accept-incoming** arrows copy the release's version in without retyping, unchanged stretches are
+collapsed, a live counter shows how many conflicts remain, **Next conflict** jumps between them, and *Apply
+resolution* stays disabled until every marker is gone. Apply writes the resolution to the working tree and the
+server **refuses** any text still carrying conflict markers (so it can never clear the L3 gate for a
+still-conflicted file). The three text sides are sourced from git (LOCAL on disk; BASE/REMOTE at the two refs),
+so the in-app editor works on a **Community git install**; where those refs aren't available (a non-git deploy,
+or no accepted release yet) it says so and points you at the git branch above.
 Set `GENEWEAVE_SOURCE_BASE_REF` if the installed code's tag isn't `v<version>`.
 
 ## Safety: the migration ledger and pre-upgrade snapshots
@@ -453,6 +458,7 @@ security threat model (and its TUF mapping) see [`THREAT_MODEL.md`](THREAT_MODEL
 | L2 code baseline store + scan orchestration | `apps/geneweave/src/code-baseline-store.ts`; baseline table `migrations/m174-upgrade-code-baseline.ts` |
 | L2 git round-trip (checkout/import) + ref reads | `apps/geneweave/src/code-git.ts` |
 | L2 in-app merge backend (git-sourced 3 sides + resolve) | `apps/geneweave/src/code-merge.ts` |
+| L2 release-aware scan (produces real conflicts from git refs) | `apps/geneweave/src/code-release-scan.ts` (`baselineAtRef` + `scanCodeAgainstRelease`); git tree reads in `code-git.ts` |
 | L2 in-app merge editor (bundled `@codemirror/merge`) | `apps/geneweave-ui/src/ui/code-merge-editor.ts` + `codemirror-merge-bundle-entry.ts` + `scripts/bundle-codemirror-merge.mjs`; Code section in `ui/upgrade-center-ui.ts` |
 | L2 Private patch reapply | `apps/geneweave/src/code-patch.ts` |
 | queue automation (resolution rules) + per-family policy rows | `apps/geneweave/src/upgrade-automation.ts`; tables + `resolution_source` column `migrations/m175-upgrade-automation.ts`; both registered in `realm-families.ts` |

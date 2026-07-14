@@ -414,6 +414,15 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
     catch (err) { json(res, 502, { error: 'load conflict failed', detail: (err as Error).message }); }
   });
 
+  // Three-way scan the code tree against the accepted release's git refs, recording real conflicts into the
+  // review queue. Returns { status: 'git_required' } when the tree isn't git / refs are unavailable.
+  router.post('/api/admin/upgrade/code/scan-release', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.scanCodeAgainstRelease !== 'function') { json(res, 501, { error: 'release scan not supported by this adapter' }); return; }
+    try { json(res, 200, await db.scanCodeAgainstRelease()); }
+    catch (err) { json(res, 502, { error: 'release scan failed', detail: (err as Error).message }); }
+  });
+
   // Apply an operator's resolved content: { detailId, path, content }. Rejects a resolution that still carries
   // conflict markers (409) and a path escaping the source root (400).
   router.post('/api/admin/upgrade/code/conflict/resolve', async (req, res, _params, auth) => {

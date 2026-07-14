@@ -291,4 +291,6 @@ export interface IAdminStore {
   getCodeConflictContent?(path: string): Promise<import('../code-merge.js').CodeConflictContent | import('../code-merge.js').CodeConflictUnavailable>;
   /** Upgrade Engine — L2 in-app merge: apply an operator's resolved content (rejects unresolved markers) + mark the review row resolved. */
   resolveCodeConflict?(detailId: string, path: string, resolvedContent: string, opts?: { resolvedBy?: string | null }): Promise<import('../code-merge.js').ResolveCodeConflictResult>;
+  /** Upgrade Engine — L2: three-way scan the code tree against the accepted release's git refs, recording real conflicts (or `git_required`). */
+  scanCodeAgainstRelease?(): Promise<import('../code-baseline-store.js').CodeScanOutcome | { status: 'git_required'; reason: string }>;
 }

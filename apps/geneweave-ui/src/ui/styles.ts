@@ -810,6 +810,9 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .uc-merge-head{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg2);border-bottom:1px solid var(--bg4);flex-wrap:wrap}
 .uc-merge-head strong{font-family:var(--mono,monospace);font-size:12px}
 .uc-merge-label{color:var(--fg2);font-size:11px;margin-right:auto}
+.uc-merge-count{font-size:11px;color:var(--amber);font-weight:600}
+.uc-merge-count:empty{display:none}
+.uc-merge-panel button[disabled]{opacity:.5;cursor:not-allowed}
 .uc-merge-mount{min-height:320px;max-height:60vh;overflow:auto}
 .uc-merge-mount .cm-editor{height:100%;font-size:12px}
 .uc-merge-mount .cm-mergeView{height:auto}

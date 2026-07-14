@@ -253,6 +253,21 @@ function renderAttention(render: () => void): HTMLElement {
 
 // ── L2 code conflicts (the in-app @codemirror/merge view) ──────────────────────────────────────────────
 
+/** Run a three-way scan against the accepted release's git refs (records real conflicts), then reload the list. */
+async function scanRelease(render: () => void): Promise<void> {
+  S.busy = 'code-scan'; S.error = null; render();
+  try {
+    const resp = await api.post('/admin/upgrade/code/scan-release', {});
+    const data = await resp.json() as { status?: string; reason?: string; recorded?: number };
+    if (data.status === 'git_required') S.error = `Release scan unavailable: ${data.reason}. Resolve on the upgrade/v<target> git branch.`;
+  } catch (err) {
+    S.error = `scan failed: ${(err as Error).message}`;
+  } finally {
+    S.busy = '';
+  }
+  await loadCodeConflicts(render); // reload the list (manages its own busy/render)
+}
+
 /** Load the unresolved code conflicts an upgrade left for a merge decision. */
 async function loadCodeConflicts(render: () => void): Promise<void> {
   S.busy = 'code'; S.error = null; render();
@@ -322,15 +337,19 @@ function renderMergePanel(render: () => void): HTMLElement {
       h('div', { className: 'uc-hint' }, `In-app merge unavailable: ${o.gitRequired}. Resolve it on the upgrade/v<target> git branch instead.`),
     );
   }
-  return h('div', { className: 'uc-merge-panel', 'data-uc-merge': '' },
+  return h('div', { className: 'uc-merge-panel', 'data-uc-merge': '', role: 'region', 'aria-label': `Merge ${o.path}` },
     h('div', { className: 'uc-merge-head' },
       h('strong', {}, o.path),
       h('span', { className: 'uc-merge-label' }, '◀ Incoming (read-only) · Your resolution (editable) ▶'),
-      h('button', { 'data-uc-merge-apply': '', onclick: () => void submitConflict(render) }, 'Apply resolution'),
+      // Live unresolved-conflict count (updated in place by the editor's onChange — see mountPendingMerge).
+      h('span', { className: 'uc-merge-count', 'data-uc-merge-count': '', role: 'status', 'aria-live': 'polite' }, 'Loading…'),
+      h('button', { 'data-uc-merge-next': '', title: 'Jump to the next remaining conflict', onclick: () => codeEditor?.gotoNextConflict() }, 'Next conflict'),
+      // Apply starts disabled and is enabled only when no conflict markers remain (set live in mountPendingMerge).
+      h('button', { 'data-uc-merge-apply': '', disabled: true, onclick: () => void submitConflict(render) }, 'Apply resolution'),
       h('button', { 'data-uc-merge-cancel': '', onclick: () => closeConflict(render) }, 'Cancel'),
     ),
     // The merge editor mounts into this container after render (setTimeout in the view root).
-    h('div', { className: 'uc-merge-mount', 'data-uc-merge-mount': '' }, 'Loading editor…'),
+    h('div', { className: 'uc-merge-mount', 'data-uc-merge-mount': '', role: 'group', 'aria-label': 'Three-way code merge editor' }, 'Loading editor…'),
   );
 }
 
@@ -341,6 +360,7 @@ function renderCode(render: () => void): HTMLElement {
     h('div', { className: 'uc-review-head' },
       h('strong', {}, 'Code conflicts (L2)'),
       h('button', { 'data-uc-code-load': '', onclick: () => void loadCodeConflicts(render) }, 'Load'),
+      h('button', { 'data-uc-code-scan': '', disabled: !!S.busy, onclick: () => void scanRelease(render) }, S.busy === 'code-scan' ? 'Scanning…' : 'Scan release'),
       list ? h('span', { className: 'uc-remaining' }, `${list.length} file${list.length === 1 ? '' : 's'}`) : null,
     ),
     ...(list === null
@@ -361,8 +381,16 @@ function mountPendingMerge(): void {
   if (!S.codeOpen || S.codeOpen.gitRequired || codeEditor) return;
   const mount = document.querySelector('[data-uc-merge-mount]') as HTMLElement | null;
   if (!mount) return;
-  void mountCodeMergeEditor({ container: mount, remote: S.codeOpen.remote, merged: S.codeOpen.merged })
-    .then((handle) => { codeEditor = handle; })
+  // Reflect the live unresolved-conflict count into the header WITHOUT a full re-render (which would destroy the
+  // editor + lose the operator's place): update the count text + Apply-button enabled state in place.
+  const reflect = (unresolved: number): void => {
+    const apply = document.querySelector('[data-uc-merge-apply]') as HTMLButtonElement | null;
+    if (apply) apply.disabled = unresolved > 0;
+    const count = document.querySelector('[data-uc-merge-count]') as HTMLElement | null;
+    if (count) count.textContent = unresolved === 0 ? 'No conflicts — ready to apply ✓' : `${unresolved} conflict${unresolved === 1 ? '' : 's'} left`;
+  };
+  void mountCodeMergeEditor({ container: mount, remote: S.codeOpen.remote, merged: S.codeOpen.merged, onChange: reflect })
+    .then((handle) => { codeEditor = handle; reflect(handle.unresolvedCount()); }) // set the initial count/gate
     .catch((err: unknown) => { mount.textContent = `editor failed to load: ${(err as Error).message}`; });
 }
 

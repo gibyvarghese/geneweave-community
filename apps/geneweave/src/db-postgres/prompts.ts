@@ -348,6 +348,15 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const { defaultSourceRoot } = await import('../code-baseline-store.js');
       return resolveCodeConflict(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot(), detailId, path, resolvedContent, opts ?? {});
     },
+    async scanCodeAgainstRelease() {
+      const { scanCodeAgainstRelease } = await import('../code-release-scan.js');
+      const { resolveCodeRefs } = await import('../code-merge.js');
+      const { defaultSourceRoot } = await import('../code-baseline-store.js');
+      const c = ctx as unknown as SqlClient; const root = defaultSourceRoot();
+      const refs = await resolveCodeRefs(c, 'postgres', root);
+      if ('status' in refs) return refs;
+      return scanCodeAgainstRelease(c, 'postgres', root, refs.baseRef, refs.remoteRef);
+    },
 
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {

@@ -133,7 +133,7 @@ export function loadCodeConflict(
  * @param opts.env environment (defaults to process.env; injectable for tests); opts.remoteRef/baseRef overrides.
  * @returns the two refs, or a `git_required` marker explaining why the in-app path is unavailable.
  */
-async function resolveMergeRefs(
+export async function resolveCodeRefs(
   client: SqlClient, dialect: SqlDialect, root: string,
   opts: { env?: NodeJS.ProcessEnv; baseRef?: string; remoteRef?: string } = {},
 ): Promise<{ baseRef: string; remoteRef: string } | CodeConflictUnavailable> {
@@ -150,7 +150,7 @@ async function resolveMergeRefs(
 
 /**
  * The Upgrade-Center entry point: assemble a conflicted file's merge content, sourcing the git refs from the
- * accepted release + environment. A thin orchestration over {@link resolveMergeRefs} + {@link loadCodeConflict}
+ * accepted release + environment. A thin orchestration over {@link resolveCodeRefs} + {@link loadCodeConflict}
  * so the DB adapters stay one-liners and the ref logic lives (and is tested) in one place.
  * @param client the SqlClient.
  * @param dialect 'sqlite' | 'postgres'.
@@ -163,7 +163,7 @@ export async function getCodeConflictContent(
   client: SqlClient, dialect: SqlDialect, root: string, path: string,
   opts: { env?: NodeJS.ProcessEnv; baseRef?: string; remoteRef?: string } = {},
 ): Promise<CodeConflictContent | CodeConflictUnavailable> {
-  const refs = await resolveMergeRefs(client, dialect, root, opts);
+  const refs = await resolveCodeRefs(client, dialect, root, opts);
   if ('status' in refs) return refs;
   return loadCodeConflict(root, path, refs.baseRef, refs.remoteRef);
 }

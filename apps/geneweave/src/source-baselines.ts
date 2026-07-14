@@ -70,6 +70,16 @@ export function sriForContent(content: string, algorithm: 'sha256' | 'sha512' = 
 }
 
 /**
+ * Whether a relative path lies under an ignored directory (or is an ignored file) — the SAME rule the live-tree
+ * walk applies, exported so a baseline computed from a git ref filters identically to one hashed from disk.
+ * @param relPath a POSIX-style relative path.
+ * @returns true iff any path segment is in the ignore set.
+ */
+export function isIgnoredPath(relPath: string): boolean {
+  return relPath.split('/').some((seg) => IGNORE.has(seg));
+}
+
+/**
  * Recursively list the relative paths of every non-ignored file under `root`, confined to the root.
  * @param root the absolute tree root.
  * @param include optional path filter.
