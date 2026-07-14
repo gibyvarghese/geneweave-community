@@ -227,6 +227,11 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
       if (typeof db.seedUpgradeReviewFixture !== 'function') { json(res, 501, { error: 'fixture not supported by this adapter' }); return; }
       json(res, 200, await db.seedUpgradeReviewFixture());
     });
+    router.post('/api/admin/upgrade/_test/seed-code-conflict', async (_req, res, _params, auth) => {
+      if (!requirePlatformAdmin(res, auth)) return;
+      if (typeof db.seedCodeConflictFixture !== 'function') { json(res, 501, { error: 'fixture not supported by this adapter' }); return; }
+      json(res, 200, await db.seedCodeConflictFixture());
+    });
   }
 
   // Undo (re-open) a resolved item; an adopt is reverted to its captured pre-adopt state.
@@ -388,5 +393,41 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
     const ev = url.searchParams.get('event'); if (ev) opts.event = ev;
     const lim = url.searchParams.get('limit'); if (lim && Number.isFinite(Number(lim))) opts.limit = Number(lim);
     json(res, 200, { events: await db.listUpgradeTelemetry(opts) });
+  });
+
+  // ── L2 in-app code-conflict merge (the @codemirror/merge view's backend) ──────────────────────────
+  // The unresolved code conflicts (family='code') awaiting a merge decision.
+  router.get('/api/admin/upgrade/code/conflicts', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.listCodeConflicts !== 'function') { json(res, 501, { error: 'code merge not supported by this adapter' }); return; }
+    json(res, 200, { conflicts: await db.listCodeConflicts() });
+  });
+
+  // The three text sides + base-informed pre-merge for one conflicted file (?path=). Git-sourced; returns
+  // { status: 'git_required' } when BASE/REMOTE aren't recoverable in-app (resolve on the upgrade branch).
+  router.get('/api/admin/upgrade/code/conflict', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.getCodeConflictContent !== 'function') { json(res, 501, { error: 'code merge not supported by this adapter' }); return; }
+    const path = new URL(req.url ?? '', 'http://localhost').searchParams.get('path');
+    if (!path) { json(res, 400, { error: 'path is required' }); return; }
+    try { json(res, 200, await db.getCodeConflictContent(path)); }
+    catch (err) { json(res, 502, { error: 'load conflict failed', detail: (err as Error).message }); }
+  });
+
+  // Apply an operator's resolved content: { detailId, path, content }. Rejects a resolution that still carries
+  // conflict markers (409) and a path escaping the source root (400).
+  router.post('/api/admin/upgrade/code/conflict/resolve', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.resolveCodeConflict !== 'function') { json(res, 501, { error: 'code merge not supported by this adapter' }); return; }
+    let body: { detailId?: unknown; path?: unknown; content?: unknown } = {};
+    try { body = JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    if (typeof body.detailId !== 'string' || typeof body.path !== 'string' || typeof body.content !== 'string') {
+      json(res, 400, { error: 'detailId, path, content are required strings' }); return;
+    }
+    try {
+      const result = await db.resolveCodeConflict(body.detailId, body.path, body.content, { resolvedBy: auth!.userId });
+      // A refusal (still-conflicted / path traversal) is a 409/400, not a 500 — the operator acts on it.
+      json(res, result.ok ? 200 : (result.reason === 'path_escapes_root' ? 400 : 409), result);
+    } catch (err) { json(res, 502, { error: 'resolve conflict failed', detail: (err as Error).message }); }
   });
 }

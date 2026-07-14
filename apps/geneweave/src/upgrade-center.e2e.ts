@@ -120,3 +120,28 @@ test('@upgrade-critical Upgrade Center — a mixed queue is resolved entirely by
   await expectRemaining(page, '0');
   expect((await reviewItems(page)).length).toBe(0);
 });
+
+test('@upgrade-critical Upgrade Center — the L2 code-conflict section lists a conflict and opens the in-app merge', async ({ page }) => {
+  await login(page, ADMIN);
+  const H = { 'x-csrf-token': await csrf(page), 'content-type': 'application/json' };
+  const origin0 = new URL('/', page.url()).origin;
+  await page.request.post(`${origin0}/api/admin/upgrade/_test/promote-admin`, { headers: H, data: {} });
+  // Seed one L2 code conflict (family='code') on its own run — separate from the review-queue fixture.
+  const seeded = await (await page.request.post(`${origin0}/api/admin/upgrade/_test/seed-code-conflict`, { headers: H, data: {} })).json() as { path: string };
+  expect(seeded.path).toBe('src/e2e-conflict.ts');
+
+  await openUpgradeCenter(page);
+  const uc = ucRoot(page);
+
+  // Load the code conflicts and assert the seeded file appears in the Code section.
+  await uc.locator('[data-uc-code-load]').click();
+  const conflictRow = uc.locator('[data-uc-code-item="src/e2e-conflict.ts"]');
+  await expect(conflictRow).toBeVisible({ timeout: 8000 });
+
+  // Open the merge. The E2E server has no accepted release (so no target code ref) → the view degrades
+  // gracefully to the git-branch note rather than a broken editor. This exercises the whole wiring:
+  // GET /code/conflicts → GET /code/conflict → the merge panel renders, honestly reporting git_required.
+  await conflictRow.locator('[data-uc-code-open]').click();
+  await expect(uc.locator('[data-uc-merge-git]')).toBeVisible({ timeout: 8000 });
+  await expect(uc.locator('[data-uc-merge-git]')).toContainText('git branch');
+});

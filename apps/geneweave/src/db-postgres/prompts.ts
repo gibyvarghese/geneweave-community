@@ -334,6 +334,20 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const { listUpgradeTelemetry } = await import('../upgrade-telemetry.js');
       return listUpgradeTelemetry(ctx as unknown as SqlClient, 'postgres', opts ?? {});
     },
+    async listCodeConflicts() {
+      const { listCodeConflicts } = await import('../code-merge.js');
+      return listCodeConflicts(ctx as unknown as SqlClient, 'postgres');
+    },
+    async getCodeConflictContent(path: string) {
+      const { getCodeConflictContent } = await import('../code-merge.js');
+      const { defaultSourceRoot } = await import('../code-baseline-store.js');
+      return getCodeConflictContent(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot(), path);
+    },
+    async resolveCodeConflict(detailId: string, path: string, resolvedContent: string, opts?: { resolvedBy?: string | null }) {
+      const { resolveCodeConflict } = await import('../code-merge.js');
+      const { defaultSourceRoot } = await import('../code-baseline-store.js');
+      return resolveCodeConflict(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot(), detailId, path, resolvedContent, opts ?? {});
+    },
 
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {

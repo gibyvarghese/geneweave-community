@@ -355,8 +355,15 @@ There are two ways to resolve a both-changed file, matching the two editions:
   edit, new vendor), so a patch whose lines the vendor also changed becomes a conflict in the review queue (a
   P1) — never silently dropped, and your edit is never silently lost.
 
-The one deploy/editor-side piece not yet wired is the **in-app** CodeMirror merge view (a convenience over the
-git branch above); the git round-trip is the primary "resolve anywhere" mechanism.
+**In-app merge editor.** The Upgrade Center's **Code** section resolves a conflict without leaving the app: it
+lists the `family='code'` conflicts, and opening one shows a two-pane split (a bundled `@codemirror/merge` view)
+— the incoming release version on the left (read-only) and the base-informed diff3 pre-merge on the right
+(editable). You resolve the markers and click *Apply resolution*; the server **refuses** any text still carrying
+conflict markers (so it can never clear the L3 gate for a still-conflicted file) and writes the resolution to
+the working tree. The three text sides are sourced from git (LOCAL on disk; BASE at the installed ref; REMOTE at
+the release's `repoTag`), so the in-app editor works on a **Community git install**; where those refs aren't
+available (a non-git deploy, or no accepted release yet) it says so and points you at the git branch above.
+Set `GENEWEAVE_SOURCE_BASE_REF` if the installed code's tag isn't `v<version>`.
 
 ## Safety: the migration ledger and pre-upgrade snapshots
 
@@ -418,6 +425,8 @@ already know still apply and are respected by the reconcile:
 | `GENEWEAVE_EDITION` | the instance edition, stamped on exported bundles and checked on import (default `community`) |
 | `GENEWEAVE_TELEMETRY=0` / `DO_NOT_TRACK=1` | opt out of ALL local telemetry (run traces + upgrade-lifecycle events); default is on/local-only |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | when set, telemetry is also exported to your own OpenTelemetry collector (unset ⇒ local only) |
+| `GENEWEAVE_SOURCE_ROOT` | the source/git work-tree root the L2 code scan + in-app merge operate on (defaults to the package dir) |
+| `GENEWEAVE_SOURCE_BASE_REF` | the installed code's git ref for the in-app merge's BASE side (defaults to `v<installed version>`) |
 
 For the operator, publisher, and private-edition runbooks see [`RUNBOOKS.md`](RUNBOOKS.md); for the update-
 security threat model (and its TUF mapping) see [`THREAT_MODEL.md`](THREAT_MODEL.md).
@@ -442,7 +451,9 @@ security threat model (and its TUF mapping) see [`THREAT_MODEL.md`](THREAT_MODEL
 | needs-attention report (drift + version lag) | `apps/geneweave/src/upgrade-attention.ts` |
 | L2 code baselines + scanner + diff3 merge | `apps/geneweave/src/source-baselines.ts`, `code-scan.ts` (uses `node-diff3`) |
 | L2 code baseline store + scan orchestration | `apps/geneweave/src/code-baseline-store.ts`; baseline table `migrations/m174-upgrade-code-baseline.ts` |
-| L2 git round-trip (checkout/import) | `apps/geneweave/src/code-git.ts` |
+| L2 git round-trip (checkout/import) + ref reads | `apps/geneweave/src/code-git.ts` |
+| L2 in-app merge backend (git-sourced 3 sides + resolve) | `apps/geneweave/src/code-merge.ts` |
+| L2 in-app merge editor (bundled `@codemirror/merge`) | `apps/geneweave-ui/src/ui/code-merge-editor.ts` + `codemirror-merge-bundle-entry.ts` + `scripts/bundle-codemirror-merge.mjs`; Code section in `ui/upgrade-center-ui.ts` |
 | L2 Private patch reapply | `apps/geneweave/src/code-patch.ts` |
 | queue automation (resolution rules) + per-family policy rows | `apps/geneweave/src/upgrade-automation.ts`; tables + `resolution_source` column `migrations/m175-upgrade-automation.ts`; both registered in `realm-families.ts` |
 | signed resolution bundles (export/import) | `apps/geneweave/src/upgrade-bundle.ts` — reuses `signManifest`/`createEd25519Verifier` from `@weaveintel/upgrade` |

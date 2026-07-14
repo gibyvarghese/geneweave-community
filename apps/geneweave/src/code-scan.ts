@@ -180,3 +180,13 @@ export function mergeCodeFile(base: string, local: string, remote: string): Code
   const r = mergeDiff3(toLines(local), toLines(base), toLines(remote), { excludeFalseConflicts: true, stringSeparator: '\n' }) as { conflict: boolean; result: string[] };
   return { clean: !r.conflict, merged: r.result.join('\n') };
 }
+
+/**
+ * Whether `text` still contains unresolved diff3 conflict markers — the gate a resolved file must clear before
+ * it can be accepted (the design requires unresolved vendor conflicts to keep blocking L3).
+ * @param text the file content to check.
+ * @returns true iff it carries both an opening `<<<<<<<` and a closing `>>>>>>>` marker.
+ */
+export function hasConflictMarkers(text: string): boolean {
+  return text.includes('<<<<<<<') && text.includes('>>>>>>>');
+}

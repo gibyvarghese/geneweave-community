@@ -253,6 +253,8 @@ export interface IAdminStore {
   undoUpgradeReviewItem?(detailId: string): Promise<import('../upgrade-review.js').ReviewResult>;
   /** Upgrade Engine — TEST-ONLY: seed a mixed review queue for the Upgrade Center E2E (gated by PLAYWRIGHT_E2E). */
   seedUpgradeReviewFixture?(): Promise<import('../upgrade-review-fixture.js').SeededReviewFixture>;
+  /** Upgrade Engine — TEST-ONLY: seed one L2 code conflict for the Code-section E2E (gated by PLAYWRIGHT_E2E). */
+  seedCodeConflictFixture?(): Promise<{ runId: string; path: string }>;
   /** Upgrade Engine — the "needs attention" report (drifted + version-lagging records) for a family. */
   upgradeAttention?(family: string, tenantId?: string): Promise<import('../upgrade-attention.js').AttentionReport>;
   /** Upgrade Engine — L2: capture the current source tree as the stored code baseline. */
@@ -283,4 +285,10 @@ export interface IAdminStore {
   pruneRealmVersions?(opts?: { keepPerKey?: number; family?: string; dryRun?: boolean }): Promise<import('../realm-version-prune.js').PruneResult>;
   /** Upgrade Engine — Hardening: read recent local upgrade telemetry (PII-free lifecycle events, newest first). */
   listUpgradeTelemetry?(opts?: { event?: string; limit?: number }): Promise<import('../upgrade-telemetry.js').UpgradeTelemetryRow[]>;
+  /** Upgrade Engine — L2 in-app merge: the unresolved code conflicts (family='code') awaiting a merge decision. */
+  listCodeConflicts?(): Promise<import('../code-merge.js').CodeConflictItem[]>;
+  /** Upgrade Engine — L2 in-app merge: the three text sides + base-informed pre-merge for one conflicted file (git-sourced). */
+  getCodeConflictContent?(path: string): Promise<import('../code-merge.js').CodeConflictContent | import('../code-merge.js').CodeConflictUnavailable>;
+  /** Upgrade Engine — L2 in-app merge: apply an operator's resolved content (rejects unresolved markers) + mark the review row resolved. */
+  resolveCodeConflict?(detailId: string, path: string, resolvedContent: string, opts?: { resolvedBy?: string | null }): Promise<import('../code-merge.js').ResolveCodeConflictResult>;
 }

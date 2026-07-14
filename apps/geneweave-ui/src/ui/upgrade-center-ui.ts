@@ -18,6 +18,7 @@
 import { h } from './dom.js';
 import { api } from './api.js';
 import { realmBadge, laggingBadge } from './realm-ui.js';
+import { mountCodeMergeEditor, type CodeMergeEditorHandle } from './code-merge-editor.js';
 
 /** Realm families the "needs attention" report can scan (the drift-tracked built-ins). */
 const ATTENTION_FAMILIES = [
@@ -41,6 +42,13 @@ interface ReviewQueue { items: ReviewItem[]; byPriority: Record<string, number>;
 interface AttentionEntry { id: string; logicalKey: string; realm: string; state: string; currentVersion: number | null; latestVersion: number | null; lagging: boolean; }
 interface AttentionReport { family: string; entries: AttentionEntry[]; count: number; }
 
+/** An unresolved L2 code conflict (a file both the operator and the release changed). */
+interface CodeConflictItem { detailId: string; path: string; priority: string; }
+/** The three text sides + base-informed pre-merge for one conflicted file (or a git_required marker). */
+interface CodeConflictContent { path: string; base: string; local: string; remote: string; merged: string; clean: boolean; }
+/** The conflict currently open in the merge editor (or a `gitRequired` reason to resolve on the branch). */
+type CodeOpen = { detailId: string; path: string; remote: string; merged: string; gitRequired?: string };
+
 /** Module-local state (rebuilt into the DOM on every `render()`), matching the other custom views' idiom. */
 interface UCState {
   status: Record<string, unknown> | null;   // last check status
@@ -51,10 +59,15 @@ interface UCState {
   lastResolved: string | null;              // detail id of the last resolve (for one-tap undo)
   attentionFamily: string;                  // the family the attention report is scanning
   attention: AttentionReport | null;
+  codeConflicts: CodeConflictItem[] | null;  // the L2 code-conflict work list (null until loaded)
+  codeOpen: CodeOpen | null;                 // the conflict currently open in the merge editor
   busy: string;                              // a label while a request is in flight
   error: string | null;
 }
-const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, attentionFamily: 'skills', attention: null, busy: '', error: null };
+const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, attentionFamily: 'skills', attention: null, codeConflicts: null, codeOpen: null, busy: '', error: null };
+
+/** The live merge-editor instance (a real object, not serialisable state — kept out of `S`). */
+let codeEditor: CodeMergeEditorHandle | null = null;
 
 /** Priority → badge kind: P1 conflict/guardrail is a red 'diverged'; everything else amber 'stale'. */
 function priorityBadge(priority: string): HTMLElement {
@@ -238,6 +251,121 @@ function renderAttention(render: () => void): HTMLElement {
   );
 }
 
+// ── L2 code conflicts (the in-app @codemirror/merge view) ──────────────────────────────────────────────
+
+/** Load the unresolved code conflicts an upgrade left for a merge decision. */
+async function loadCodeConflicts(render: () => void): Promise<void> {
+  S.busy = 'code'; S.error = null; render();
+  try {
+    const resp = await api.get('/admin/upgrade/code/conflicts');
+    S.codeConflicts = (await resp.json() as { conflicts: CodeConflictItem[] }).conflicts;
+  } catch (err) {
+    S.error = `load code conflicts failed: ${(err as Error).message}`;
+  } finally {
+    S.busy = ''; render();
+  }
+}
+
+/** Open one conflict in the merge editor. A git_required response degrades to a "resolve on the branch" note. */
+async function openConflict(item: CodeConflictItem, render: () => void): Promise<void> {
+  S.busy = 'code'; S.error = null; render();
+  try {
+    const resp = await api.get(`/admin/upgrade/code/conflict?path=${encodeURIComponent(item.path)}`);
+    const data = await resp.json() as CodeConflictContent | { status: 'git_required'; reason: string };
+    S.codeOpen = 'status' in data && data.status === 'git_required'
+      ? { detailId: item.detailId, path: item.path, remote: '', merged: '', gitRequired: data.reason }
+      : { detailId: item.detailId, path: item.path, remote: (data as CodeConflictContent).remote, merged: (data as CodeConflictContent).merged };
+  } catch (err) {
+    S.error = `open conflict failed: ${(err as Error).message}`;
+  } finally {
+    S.busy = ''; render();
+  }
+}
+
+/** Tear down the editor + close the merge panel. */
+function closeConflict(render: () => void): void {
+  if (codeEditor) { codeEditor.destroy(); codeEditor = null; }
+  S.codeOpen = null; render();
+}
+
+/** Submit the operator's resolution. The server refuses text still carrying markers (surfaced in the banner). */
+async function submitConflict(render: () => void): Promise<void> {
+  const o = S.codeOpen;
+  if (!o || o.gitRequired) return;
+  const content = codeEditor ? codeEditor.getResolved() : o.merged;
+  S.busy = 'code'; S.error = null; render();
+  try {
+    const resp = await api.post('/admin/upgrade/code/conflict/resolve', { detailId: o.detailId, path: o.path, content });
+    const res = await resp.json() as { ok?: boolean; reason?: string };
+    if (res.ok) {
+      if (codeEditor) { codeEditor.destroy(); codeEditor = null; }
+      S.codeOpen = null;
+      await loadCodeConflicts(render);
+    } else {
+      S.error = res.reason === 'unresolved_markers'
+        ? 'Still has conflict markers — resolve every <<<<<<< / ======= / >>>>>>> before applying.'
+        : (res.reason ?? 'resolve failed');
+    }
+  } catch (err) {
+    S.error = `resolve failed: ${(err as Error).message}`;
+  } finally {
+    S.busy = ''; render();
+  }
+}
+
+/** The open conflict's merge panel: labels + the editor mount point + apply/cancel (or the git-required note). */
+function renderMergePanel(render: () => void): HTMLElement {
+  const o = S.codeOpen!;
+  if (o.gitRequired) {
+    return h('div', { className: 'uc-merge-panel', 'data-uc-merge-git': '' },
+      h('div', { className: 'uc-merge-head' }, h('strong', {}, o.path), h('button', { onclick: () => closeConflict(render) }, 'Close')),
+      h('div', { className: 'uc-hint' }, `In-app merge unavailable: ${o.gitRequired}. Resolve it on the upgrade/v<target> git branch instead.`),
+    );
+  }
+  return h('div', { className: 'uc-merge-panel', 'data-uc-merge': '' },
+    h('div', { className: 'uc-merge-head' },
+      h('strong', {}, o.path),
+      h('span', { className: 'uc-merge-label' }, '◀ Incoming (read-only) · Your resolution (editable) ▶'),
+      h('button', { 'data-uc-merge-apply': '', onclick: () => void submitConflict(render) }, 'Apply resolution'),
+      h('button', { 'data-uc-merge-cancel': '', onclick: () => closeConflict(render) }, 'Cancel'),
+    ),
+    // The merge editor mounts into this container after render (setTimeout in the view root).
+    h('div', { className: 'uc-merge-mount', 'data-uc-merge-mount': '' }, 'Loading editor…'),
+  );
+}
+
+/** The Code section: a Load button, the conflict list, and (when one is open) the merge panel. */
+function renderCode(render: () => void): HTMLElement {
+  const list = S.codeConflicts;
+  return h('div', { className: 'uc-code', 'data-uc-code': '' },
+    h('div', { className: 'uc-review-head' },
+      h('strong', {}, 'Code conflicts (L2)'),
+      h('button', { 'data-uc-code-load': '', onclick: () => void loadCodeConflicts(render) }, 'Load'),
+      list ? h('span', { className: 'uc-remaining' }, `${list.length} file${list.length === 1 ? '' : 's'}`) : null,
+    ),
+    ...(list === null
+      ? [h('div', { className: 'uc-hint' }, 'Load the code files an upgrade left conflicting for a merge decision.')]
+      : list.length === 0
+        ? [h('div', { className: 'uc-empty' }, 'No code conflicts.')]
+        : list.map((it) => h('div', { className: 'uc-review-row', 'data-uc-code-item': it.path },
+            priorityBadge(it.priority),
+            h('span', { className: 'uc-key' }, it.path),
+            h('div', { className: 'uc-row-actions' }, h('button', { 'data-uc-code-open': '', onclick: () => void openConflict(it, render) }, 'Open merge')),
+          ))),
+    S.codeOpen ? renderMergePanel(render) : null,
+  );
+}
+
+/** After a render, mount the CodeMirror merge editor into the open conflict's placeholder (idempotent). */
+function mountPendingMerge(): void {
+  if (!S.codeOpen || S.codeOpen.gitRequired || codeEditor) return;
+  const mount = document.querySelector('[data-uc-merge-mount]') as HTMLElement | null;
+  if (!mount) return;
+  void mountCodeMergeEditor({ container: mount, remote: S.codeOpen.remote, merged: S.codeOpen.merged })
+    .then((handle) => { codeEditor = handle; })
+    .catch((err: unknown) => { mount.textContent = `editor failed to load: ${(err as Error).message}`; });
+}
+
 /** Refocus the review container after a re-render so keyboard navigation keeps working. */
 function focusReview(): void {
   const el = document.querySelector('[data-uc-review]') as HTMLElement | null;
@@ -277,6 +405,13 @@ function renderLayers(): HTMLElement | null {
  */
 export function renderUpgradeCenterView(options: { render: () => void }): HTMLElement {
   const { render } = options;
+  // A full re-render replaces the whole DOM (destroying the editor's nodes). If a merge editor is live, capture
+  // its in-progress text into `codeOpen.merged` and dispose it BEFORE the rebuild, so the post-render re-mount
+  // restores the operator's unsaved resolution rather than resetting it.
+  if (codeEditor) {
+    try { if (S.codeOpen) S.codeOpen = { ...S.codeOpen, merged: codeEditor.getResolved() }; } catch { /* editor gone */ }
+    codeEditor.destroy(); codeEditor = null;
+  }
   // First mount: pull the current status + any outstanding review items.
   if (S.status === null && !S.busy) { void callLifecycle('status', render); void loadQueue(render); }
 
@@ -290,9 +425,12 @@ export function renderUpgradeCenterView(options: { render: () => void }): HTMLEl
     ),
     renderLayers(),
     renderReview(render),
+    renderCode(render),
     renderAttention(render),
   );
-  // Auto-focus the review queue so the keyboard model works immediately (and for the E2E).
+  // Auto-focus the review queue so the keyboard model works immediately (and for the E2E); then (re-)mount the
+  // merge editor into the open conflict's placeholder, restoring any captured in-progress text.
   setTimeout(focusReview, 0);
+  setTimeout(mountPendingMerge, 0);
   return root;
 }

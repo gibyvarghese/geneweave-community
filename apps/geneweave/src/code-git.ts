@@ -47,6 +47,18 @@ export function isGitRepo(repoRoot: string): boolean {
 }
 
 /**
+ * Whether a ref (tag / branch / commit) resolves in the repo — so a caller can verify BASE/REMOTE refs exist
+ * before trying to read file content at them (a missing ref would otherwise silently produce empty content and
+ * a garbage merge).
+ * @param repoRoot the git work tree.
+ * @param ref the ref to verify.
+ * @returns true iff `git rev-parse --verify <ref>^{commit}` succeeds.
+ */
+export function refExists(repoRoot: string, ref: string): boolean {
+  try { git(repoRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]); return true; } catch { return false; }
+}
+
+/**
  * Write conflict-marked (or merged) files onto a fresh `upgrade/v<target>` branch and commit them, so an
  * operator can resolve them in any editor/mergetool.
  * @param repoRoot the git work tree.
@@ -75,14 +87,45 @@ export function writeUpgradeBranch(repoRoot: string, targetVersion: string, file
 }
 
 /**
+ * Read a file's content at an arbitrary git ref (tag / branch / commit) — `git show <ref>:<path>`. The ref and
+ * path are passed as a single argv element to `git show`, never shell-interpolated, so neither can inject.
+ * @param repoRoot the git work tree.
+ * @param ref the git ref (a tag like `v1.2.3`, a branch, or a commit sha).
+ * @param path the repo-relative file path.
+ * @returns the file content at that ref. Throws if the ref or path doesn't exist there (use
+ *   {@link readFileAtRefOrNull} when "absent" is a valid, expected answer — e.g. a file only one side has).
+ */
+export function readFileAtRef(repoRoot: string, ref: string, path: string): string {
+  return execFileSync('git', ['-C', repoRoot, 'show', `${ref}:${path}`], { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+}
+
+/**
+ * Read a file at a ref, returning null when the file does NOT exist at that ref (rather than throwing). This is
+ * the correct read for the BASE/REMOTE sides of a merge: a newly-added file has no BASE, a deleted file has no
+ * REMOTE, and "absent" must be represented as empty content, not an error.
+ * @param repoRoot the git work tree.
+ * @param ref the git ref.
+ * @param path the repo-relative file path.
+ * @returns the content, or null if the path doesn't exist at that ref.
+ */
+export function readFileAtRefOrNull(repoRoot: string, ref: string, path: string): string | null {
+  try {
+    return readFileAtRef(repoRoot, ref, path);
+  } catch {
+    return null; // path absent at this ref (added on one side / deleted on the other) — a valid merge input
+  }
+}
+
+/**
  * Import a file's RESOLVED content from the upgrade branch (after the operator resolved the conflicts on it).
+ * A branch is just a ref, so this is {@link readFileAtRef} named for its call site.
  * @param repoRoot the git work tree.
  * @param branch the upgrade branch name.
  * @param path the repo-relative file path.
  * @returns the file content on that branch. Throws if the ref/path doesn't exist.
  */
 export function readUpgradeBranchFile(repoRoot: string, branch: string, path: string): string {
-  return execFileSync('git', ['-C', repoRoot, 'show', `${branch}:${path}`], { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  return readFileAtRef(repoRoot, branch, path);
 }
 
 /**
