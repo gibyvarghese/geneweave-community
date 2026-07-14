@@ -98,8 +98,23 @@ export async function runCodeScan(client: SqlClient, dialect: SqlDialect, root: 
   const outcome = await runCodeStatus(client, dialect, root, remote);
   if (outcome.status === 'no_baseline') return outcome;
   const { status: _s, ...report } = outcome;
+  const { runId, recorded } = await persistCodeReport(client, dialect, report, at);
+  return { status: 'ok', runId, recorded, report };
+}
+
+/**
+ * Record a code-status report as L2 review items under a fresh preview run — the shared write path for both the
+ * stored-baseline scan ({@link runCodeScan}) and the release-ref scan (`code-release-scan.ts`), so the run
+ * bookkeeping lives in one place.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @param report the classified {@link CodeStatusReport}.
+ * @param at optional timestamp override (tests).
+ * @returns the run id + how many detail rows were recorded. Side effects: one upgrade_runs row + N upgrade_details.
+ */
+export async function persistCodeReport(client: SqlClient, dialect: SqlDialect, report: CodeStatusReport, at?: string): Promise<{ runId: string; recorded: number }> {
   const runId = await beginUpgradeRun(client, dialect, { mode: 'preview', toVersion: 'code-scan', at });
   const recorded = await recordCodeReview(client, dialect, runId, report);
   await finishUpgradeRun(client, dialect, runId, { status: 'succeeded', summary: { codeConflicts: report.conflicts.length, codeChanges: recorded }, at });
-  return { status: 'ok', runId, recorded, report };
+  return { runId, recorded };
 }

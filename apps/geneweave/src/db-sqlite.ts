@@ -1309,6 +1309,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const { defaultSourceRoot } = await import('./code-baseline-store.js');
     return resolveCodeConflict(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot(), detailId, path, resolvedContent, opts ?? {});
   }
+  /** Three-way scan the code tree against the accepted release's git refs, recording real conflicts. */
+  async scanCodeAgainstRelease(): Promise<import('./code-baseline-store.js').CodeScanOutcome | { status: 'git_required'; reason: string }> {
+    const { scanCodeAgainstRelease } = await import('./code-release-scan.js');
+    const { resolveCodeRefs } = await import('./code-merge.js');
+    const { defaultSourceRoot } = await import('./code-baseline-store.js');
+    const c = sqliteSqlClient(this.d); const root = defaultSourceRoot();
+    const refs = await resolveCodeRefs(c, 'sqlite', root);
+    if ('status' in refs) return refs;
+    return scanCodeAgainstRelease(c, 'sqlite', root, refs.baseRef, refs.remoteRef);
+  }
 
   /**
    * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply

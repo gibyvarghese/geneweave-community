@@ -87,6 +87,56 @@ export function writeUpgradeBranch(repoRoot: string, targetVersion: string, file
 }
 
 /**
+ * List every file path present in a git ref's tree — `git ls-tree -r --name-only <ref>`. Used to enumerate the
+ * files a release ships (at its tag) so their content can be hashed into a baseline. The ref is one argv
+ * element (never shell-interpolated).
+ * @param repoRoot the git work tree.
+ * @param ref the git ref whose tree to list.
+ * @returns the repo-relative paths at that ref (POSIX-style, as git emits them). Empty if the ref has no tree.
+ */
+export function listTreeFilesAtRef(repoRoot: string, ref: string): string[] {
+  const out = git(repoRoot, ['ls-tree', '-r', '--name-only', '-z', ref]);
+  // -z gives NUL-separated paths (safe for paths with spaces/newlines); split + drop the trailing empty.
+  return out.length === 0 ? [] : out.split('\0').filter((p) => p.length > 0);
+}
+
+/**
+ * Read many files' content at a ref in ONE `git cat-file --batch` subprocess (instead of one `git show` per
+ * file), so hashing a whole release tree is fast. Returns a Map of path → content; a path absent at the ref is
+ * simply omitted. Binary/oversized blobs are returned as their raw UTF-8 decode (the baseliner skips anything
+ * that isn't editable source anyway).
+ * @param repoRoot the git work tree.
+ * @param ref the git ref.
+ * @param paths the repo-relative paths to read.
+ * @returns a Map of path → UTF-8 content for the paths that exist at the ref.
+ */
+export function readFilesAtRef(repoRoot: string, ref: string, paths: readonly string[]): Map<string, string> {
+  const result = new Map<string, string>();
+  if (paths.length === 0) return result;
+  // Feed `<ref>:<path>\n` per file on stdin; git streams `<oid> blob <size>\n<content>\n` (or `… missing\n`).
+  const input = paths.map((p) => `${ref}:${p}`).join('\n') + '\n';
+  const buf = execFileSync('git', ['-C', repoRoot, 'cat-file', '--batch'], { input, maxBuffer: 512 * 1024 * 1024 });
+  let off = 0;
+  for (const path of paths) {
+    // Read one header line up to '\n'.
+    const nl = buf.indexOf(0x0a, off);
+    if (nl === -1) break;
+    const header = buf.toString('utf8', off, nl);
+    off = nl + 1;
+    const parts = header.split(' ');
+    if (parts[1] === 'missing' || parts[1] !== 'blob') {
+      // `<name> missing` has no body; a non-blob (unlikely for a file path) also has no body to consume here.
+      continue;
+    }
+    const size = Number(parts[2]);
+    const content = buf.toString('utf8', off, off + size);
+    off += size + 1; // skip the blob content + the trailing newline git appends
+    result.set(path, content);
+  }
+  return result;
+}
+
+/**
  * Read a file's content at an arbitrary git ref (tag / branch / commit) — `git show <ref>:<path>`. The ref and
  * path are passed as a single argv element to `git show`, never shell-interpolated, so neither can inject.
  * @param repoRoot the git work tree.
