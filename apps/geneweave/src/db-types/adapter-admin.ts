@@ -297,4 +297,6 @@ export interface IAdminStore {
   resolveCodeConflict?(detailId: string, path: string, resolvedContent: string, opts?: { resolvedBy?: string | null }): Promise<import('../code-merge.js').ResolveCodeConflictResult>;
   /** Upgrade Engine — L2: three-way scan the code tree against the accepted release's git refs, recording real conflicts (or `git_required`). */
   scanCodeAgainstRelease?(): Promise<import('../code-baseline-store.js').CodeScanOutcome | { status: 'git_required'; reason: string }>;
+  /** Upgrade Engine — L2: three-way scan sourcing BASE/REMOTE trees from GitHub (for instances with no local git checkout), integrity-verified against the signed manifest. */
+  scanCodeRemote?(): Promise<import('../code-remote-fetch.js').RemoteScanResult>;
 }

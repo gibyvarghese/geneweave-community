@@ -325,13 +325,23 @@ function renderAttention(render: () => void): HTMLElement {
 
 // ── L2 code conflicts (the in-app @codemirror/merge view) ──────────────────────────────────────────────
 
-/** Run a three-way scan against the accepted release's git refs (records real conflicts), then reload the list. */
+/**
+ * Run a three-way scan and reload the conflict list. Prefers the local-git path (`scan-release`); when there's
+ * no local checkout (`git_required`) it falls back to fetching the release trees from the configured GitHub
+ * source (`scan-remote`), which is integrity-checked against the signed manifest. Distinct failure reasons
+ * (unconfigured / fetch failed / integrity failed) surface in the banner.
+ */
 async function scanRelease(render: () => void): Promise<void> {
   S.busy = 'code-scan'; S.error = null; render();
   try {
-    const resp = await api.post('/admin/upgrade/code/scan-release', {});
-    const data = await resp.json() as { status?: string; reason?: string; recorded?: number };
-    if (data.status === 'git_required') S.error = `Release scan unavailable: ${data.reason}. Resolve on the upgrade/v<target> git branch.`;
+    let data = await (await api.post('/admin/upgrade/code/scan-release', {})).json() as { status?: string; reason?: string; recorded?: number };
+    if (data.status === 'git_required') {
+      // No local git work tree — fetch the pristine BASE/REMOTE trees straight from the configured GitHub repo.
+      data = await (await api.post('/admin/upgrade/code/scan-remote', {})).json() as typeof data;
+    }
+    if (data.status === 'not_configured') S.error = `Can't scan for code changes: ${data.reason}. Configure a release source and run Check first.`;
+    else if (data.status === 'fetch_failed') S.error = `Couldn't fetch the release code from GitHub: ${data.reason}.`;
+    else if (data.status === 'integrity_failed') S.error = `Release code failed its integrity check: ${data.reason}. The download doesn't match the signed manifest and was not used.`;
   } catch (err) {
     S.error = `scan failed: ${(err as Error).message}`;
   } finally {

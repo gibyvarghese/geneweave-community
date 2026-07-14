@@ -471,6 +471,16 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
     catch (err) { json(res, 502, { error: 'release scan failed', detail: (err as Error).message }); }
   });
 
+  // Three-way scan sourcing BASE/REMOTE trees from GitHub (no local git checkout needed). The fetched target
+  // tree is integrity-checked against the signed manifest before any conflict is recorded. A fetch/integrity
+  // failure or an unconfigured source is returned as a typed status (not an error) so the UI can guide the fix.
+  router.post('/api/admin/upgrade/code/scan-remote', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.scanCodeRemote !== 'function') { json(res, 501, { error: 'remote scan not supported by this adapter' }); return; }
+    try { json(res, 200, await db.scanCodeRemote()); }
+    catch (err) { json(res, 502, { error: 'remote scan failed', detail: (err as Error).message }); }
+  });
+
   // Apply an operator's resolved content: { detailId, path, content }. Rejects a resolution that still carries
   // conflict markers (409) and a path escaping the source root (400).
   router.post('/api/admin/upgrade/code/conflict/resolve', async (req, res, _params, auth) => {

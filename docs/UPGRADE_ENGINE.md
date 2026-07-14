@@ -362,6 +362,17 @@ For a both-changed file the engine runs a line-level **diff3 merge**: non-overla
 overlapping edits produce standard `<<<<<<< ||||||| ======= >>>>>>>` markers to resolve in any editor or
 mergetool — the git-native path.
 
+**Scanning without a local git checkout.** The three-way scan needs the release's *pristine* source at your
+installed version (BASE) and the target version (REMOTE). If your instance was installed from a git clone, those
+come from local tags. If it wasn't — a source download, or a clone missing the tags — the Upgrade Center fetches
+them straight from the configured GitHub repo as **tarballs** (`POST /api/admin/upgrade/code/scan-remote`, which
+the "Scan release" button falls back to automatically when local git is unavailable). The download goes through
+the same hardened HTTP pipeline as the manifest (a private-repo token rides only in the `Authorization` header,
+never logged), and the fetched target tree is **integrity-checked against the signed manifest's
+`fileManifestDigest`** before a single conflict is recorded — a tampered or wrong tree is rejected, not merged.
+Extraction is size-capped and path-traversal-safe, and the temporary trees are always removed. The result feeds
+the *same* classifier, so "auto-adopt what I haven't touched, flag what I changed" works with no git at all.
+
 The walk is confined to the tree root and never follows a symlink, so a hostile baseline can't read outside the
 scan root. **Scale:** hashing a 10,000-file tree takes ~0.2 s; the review resolution path sustains ~30k
 resolves/s with 1,000 concurrent resolves finishing in tens of milliseconds (p99 ≈ 31 ms) with no lost updates,

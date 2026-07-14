@@ -1330,6 +1330,14 @@ export class SQLiteAdapter implements DatabaseAdapter {
     if ('status' in refs) return refs;
     return scanCodeAgainstRelease(c, 'sqlite', root, refs.baseRef, refs.remoteRef);
   }
+  /** Upgrade Engine — L2 three-way scan sourcing BASE/REMOTE trees from GitHub (no local git checkout needed). */
+  async scanCodeRemote(): Promise<import('./code-remote-fetch.js').RemoteScanResult> {
+    const { scanCodeRemoteFromConfig } = await import('./code-remote-fetch.js');
+    const { defaultSourceRoot } = await import('./code-baseline-store.js');
+    const { buildUpgradeTokenProvider } = await import('./upgrade-check.js');
+    const tokenProvider = buildUpgradeTokenProvider();
+    return scanCodeRemoteFromConfig(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot(), tokenProvider ? { tokenProvider } : {});
+  }
 
   /**
    * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply

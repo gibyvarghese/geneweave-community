@@ -367,6 +367,14 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       if ('status' in refs) return refs;
       return scanCodeAgainstRelease(c, 'postgres', root, refs.baseRef, refs.remoteRef);
     },
+    /** Upgrade Engine — L2 three-way scan sourcing BASE/REMOTE trees from GitHub (no local git checkout). */
+    async scanCodeRemote() {
+      const { scanCodeRemoteFromConfig } = await import('../code-remote-fetch.js');
+      const { defaultSourceRoot } = await import('../code-baseline-store.js');
+      const { buildUpgradeTokenProvider } = await import('../upgrade-check.js');
+      const tokenProvider = buildUpgradeTokenProvider();
+      return scanCodeRemoteFromConfig(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot(), tokenProvider ? { tokenProvider } : {});
+    },
 
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {
