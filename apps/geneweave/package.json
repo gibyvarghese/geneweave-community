@@ -23,6 +23,7 @@
     "test:coverage": "vitest run --coverage",
     "test:api": "vitest run src/api.test.ts",
     "test:e2e": "npx playwright test --config playwright.config.ts",
+    "test:e2e:upgrade": "node scripts/upgrade-center-e2e.mjs",
     "sv:eval": "npx tsx src/features/scientific-validation/evals/run-corpus.ts",
     "sv:cost-gate": "npx tsx src/features/scientific-validation/evals/cost-gate.ts"
   },
