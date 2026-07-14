@@ -22,7 +22,7 @@ interface CmMergeBundle {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   MergeView: new (config: any) => { b: EditorViewLike; destroy(): void };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  EditorView: { editable: { of(v: boolean): any }; updateListener: { of(fn: (u: { docChanged: boolean }) => void): any }; new (c: any): EditorViewLike };
+  EditorView: { editable: { of(v: boolean): any }; updateListener: { of(fn: (u: { docChanged: boolean }) => void): any }; cspNonce: { of(nonce: string): any }; new (c: any): EditorViewLike };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   keymap: { of(binds: any[]): any };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,16 +88,21 @@ export async function mountCodeMergeEditor(opts: {
 }): Promise<CodeMergeEditorHandle> {
   const cm = await loadBundle();
   opts.container.textContent = '';
+  // CodeMirror injects its theme stylesheets at runtime; under the app's strict hash-based style-src CSP those
+  // would be blocked. The server stamps a per-response style nonce into <meta name="csp-style-nonce"> and adds
+  // it to style-src; tagging every editor view with it (EditorView.cspNonce) lets those stylesheets through.
+  const styleNonce = (typeof document !== 'undefined' ? document.querySelector('meta[name="csp-style-nonce"]')?.getAttribute('content') : '') ?? '';
+  const cspExt = cm.EditorView.cspNonce.of(styleNonce);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bExtensions: any[] = [
-    cm.history(), cm.keymap.of([...cm.defaultKeymap, ...cm.historyKeymap]), cm.lineNumbers(),
+    cspExt, cm.history(), cm.keymap.of([...cm.defaultKeymap, ...cm.historyKeymap]), cm.lineNumbers(),
   ];
   if (opts.onChange) {
     const notify = (view: EditorViewLike): void => opts.onChange!(conflictLines(view).length);
     bExtensions.push(cm.EditorView.updateListener.of((u: { docChanged: boolean }) => { if (u.docChanged) notify(view.b); }));
   }
   const view = new cm.MergeView({
-    a: { doc: opts.remote, extensions: [cm.EditorView.editable.of(false), cm.lineNumbers()] }, // REMOTE — read-only
+    a: { doc: opts.remote, extensions: [cspExt, cm.EditorView.editable.of(false), cm.lineNumbers()] }, // REMOTE — read-only
     b: { doc: opts.merged, extensions: bExtensions },                                          // editable resolution
     parent: opts.container,
     revertControls: 'a-to-b',                 // per-chunk arrow: accept the incoming (left) version into the edit
