@@ -1095,6 +1095,12 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const { latestReleaseCheck } = await import('./upgrade-release-store.js');
     return latestReleaseCheck(sqliteSqlClient(this.d), 'sqlite');
   }
+  /** Upgrade Engine — the latest ACCEPTED release's version + edition (for the one-click run summary), or null. */
+  async getAcceptedReleaseInfo(): Promise<{ version: string; edition: string } | null> {
+    const { latestAcceptedManifest } = await import('./upgrade-release-store.js');
+    const t = await latestAcceptedManifest(sqliteSqlClient(this.d), 'sqlite');
+    return t ? { version: t.version, edition: t.manifest.edition } : null;
+  }
 
   /** Upgrade Engine — read-only PREFLIGHT gates for the latest accepted release (or `no_release`). */
   async runUpgradePreflight(): Promise<import('./upgrade-preflight.js').PreflightResult | { status: 'no_release' }> {

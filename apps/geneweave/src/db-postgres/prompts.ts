@@ -177,6 +177,12 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const { latestReleaseCheck } = await import('../upgrade-release-store.js');
       return latestReleaseCheck(ctx as unknown as SqlClient, 'postgres');
     },
+    /** Upgrade Engine — the latest ACCEPTED release's version + edition (for the one-click run summary), or null. */
+    async getAcceptedReleaseInfo() {
+      const { latestAcceptedManifest } = await import('../upgrade-release-store.js');
+      const t = await latestAcceptedManifest(ctx as unknown as SqlClient, 'postgres');
+      return t ? { version: t.version, edition: t.manifest.edition } : null;
+    },
 
     /** Upgrade Engine — read-only PREFLIGHT (Postgres). Mirror of the SQLite adapter method; see there. */
     async runUpgradePreflight() {

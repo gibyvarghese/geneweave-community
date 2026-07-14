@@ -168,6 +168,42 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
     }
   });
 
+  // One-click upgrade: preflight → derive the code-conflict gate from the recorded conflicts (so the operator
+  // needn't pass unresolvedCodePaths by hand) → apply → an honest, plain-language outcome. Preflight failures
+  // are returned as `blocked` (with the failing gates) instead of applying — pass { force:true } to override.
+  router.post('/api/admin/upgrade/run', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.runUpgradeApply !== 'function') { json(res, 501, { error: 'apply not supported by this adapter' }); return; }
+    let force = false;
+    try { const raw = await readBody(req); if (raw) force = (JSON.parse(raw) as { force?: unknown }).force === true; } catch { /* default */ }
+    const { computeBumpType, describeUpgradeOutcome } = await import('../../upgrade-orchestrate.js');
+    const { resolveEditionL2Mode } = await import('../../upgrade-apply.js');
+    try {
+      // Preflight gate (unless forced) — never mutate when a hard check fails.
+      if (!force && typeof db.runUpgradePreflight === 'function') {
+        const pf = await db.runUpgradePreflight();
+        if (pf && 'ok' in pf && pf.ok === false) { json(res, 200, { status: 'blocked', preflight: pf }); return; }
+      }
+      // Auto-derive the code-conflict gate: any unresolved code conflict defers the schema/data that depends on it.
+      const conflicts = typeof db.listCodeConflicts === 'function' ? await db.listCodeConflicts() : [];
+      const unresolvedCodePaths = conflicts.map((c) => c.path);
+      // Version + edition for the summary: ApplyResult carries neither — from = installed, to = accepted release.
+      const { getAppVersion } = await import('../../upgrade-check.js');
+      const target = typeof db.getAcceptedReleaseInfo === 'function' ? await db.getAcceptedReleaseInfo() : null;
+      const result = await db.runUpgradeApply({ force, unresolvedCodePaths });
+      if ('status' in result && result.status === 'no_release') { json(res, 200, { status: 'no_release', message: 'No accepted release to apply; run the check first.' }); return; }
+      const applied = result as import('../../upgrade-apply.js').ApplyResult;
+      const fromVersion = getAppVersion();
+      const toVersion = target?.version ?? '';
+      const bumpType = computeBumpType(fromVersion, toVersion);
+      const edition = target?.edition ?? process.env['GENEWEAVE_EDITION'] ?? 'community';
+      const outcome = describeUpgradeOutcome(applied, { bumpType, toVersion, l2mode: resolveEditionL2Mode(edition), codeConflicts: conflicts.length });
+      json(res, 200, { status: 'ran', bumpType, fromVersion, toVersion, outcome, apply: applied, codeConflicts: conflicts.length });
+    } catch (err) {
+      json(res, 502, { error: 'upgrade run failed', detail: (err as Error).message });
+    }
+  });
+
   // ── Review queue ──────────────────────────────────────────────────────────────────────────────────────
   const REVIEW_ACTIONS = new Set(['keep', 'adopt', 'defer']);
 

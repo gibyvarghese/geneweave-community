@@ -805,6 +805,12 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .uc-source-actions button[data-uc-source-save]{border-color:var(--accent);background:var(--accent);color:#fff}
 .uc-source-actions button[disabled]{opacity:.5;cursor:not-allowed}
 .uc-field-error{color:var(--danger);font-size:11px}
+.uc-run-outcome{margin-top:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--bg4);background:var(--bg3);font-size:13px}
+.uc-run-outcome strong{display:block;margin-bottom:2px}
+.uc-run-detail{color:var(--fg2)}
+.uc-run-deploy{border-color:var(--amber)}
+.uc-run-blocked{border-color:var(--danger)}
+.uc-run-gate{color:var(--danger);font-size:12px;margin-top:2px;font-family:var(--mono,monospace)}
 .uc-stepper{display:flex;gap:8px;margin:12px 0}
 .uc-step{padding:8px 16px;border-radius:8px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg);cursor:pointer;font-weight:600}
 .uc-step:hover{background:var(--bg3)}

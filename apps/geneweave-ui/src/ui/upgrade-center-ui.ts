@@ -77,10 +77,19 @@ interface UCState {
   sourceForm: SourceForm | null;             // non-null while the operator is editing the source
   sourceErrors: Record<string, string>;      // field → message from the last save attempt
   compare: VersionCompare | null;            // deployed-vs-available from the last check
+  runOutcome: UpgradeRunResult | null;       // the result of the one-click "Upgrade" action
   busy: string;                              // a label while a request is in flight
   error: string | null;
 }
-const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, attentionFamily: 'skills', attention: null, codeConflicts: null, codeOpen: null, source: null, sourceLoaded: false, sourceForm: null, sourceErrors: {}, compare: null, busy: '', error: null };
+/** The one-click upgrade result: blocked by preflight, or ran with a plain-language outcome. */
+interface UpgradeRunResult {
+  status: 'blocked' | 'ran' | 'no_release';
+  bumpType?: string;
+  outcome?: { status: string; headline: string; detail: string; pending: number; needsDeploy: boolean };
+  preflight?: { ok: boolean; gates: { name: string; ok: boolean; detail: string }[] };
+  message?: string;
+}
+const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, attentionFamily: 'skills', attention: null, codeConflicts: null, codeOpen: null, source: null, sourceLoaded: false, sourceForm: null, sourceErrors: {}, compare: null, runOutcome: null, busy: '', error: null };
 
 /** The live merge-editor instance (a real object, not serialisable state — kept out of `S`). */
 let codeEditor: CodeMergeEditorHandle | null = null;
@@ -162,6 +171,35 @@ async function saveSource(render: () => void): Promise<void> {
   } catch (err) {
     S.error = `save source failed: ${(err as Error).message}`;
   } finally { S.busy = ''; render(); }
+}
+
+/** A coarse client-side semver bump for the badge (server confirms the authoritative one on run). */
+function clientBump(from: string, to: string): string | null {
+  const a = /^(\d+)\.(\d+)\.(\d+)/.exec(from), b = /^(\d+)\.(\d+)\.(\d+)/.exec(to);
+  if (!a || !b) return null;
+  if (a[1] !== b[1]) return 'major';
+  if (a[2] !== b[2]) return 'minor';
+  if (a[3] !== b[3]) return 'patch';
+  return null;
+}
+
+/**
+ * One-click upgrade: preflight → apply (the server derives the code-conflict gate) → outcome. A preflight block
+ * returns the failing gates; a run returns a plain-language result. On a successful run the review queue +
+ * conflict list are refreshed so the operator sees what's left to merge.
+ */
+async function runUpgrade(render: () => void): Promise<void> {
+  S.busy = 'run'; S.error = null; S.runOutcome = null; render();
+  try {
+    const resp = await api.post('/admin/upgrade/run', {});
+    S.runOutcome = await resp.json() as UpgradeRunResult;
+  } catch (err) {
+    S.error = `upgrade failed: ${(err as Error).message}`;
+  } finally {
+    S.busy = '';
+  }
+  await loadQueue(render);            // refresh what's left to review
+  await loadCodeConflicts(render);    // and any code files needing a merge (also re-renders)
 }
 
 // ── review queue ──────────────────────────────────────────────────────────────────────────────────────
@@ -525,6 +563,7 @@ function renderSourceForm(render: () => void): HTMLElement {
 function renderSourceVersion(render: () => void): HTMLElement {
   const c = S.compare;
   const updateAvailable = c?.status === 'update_available';
+  const bump = c && c.available ? clientBump(c.installed, c.available) : null;
   // Version line: only meaningful once a check has run (the check returns the deployed version + latest manifest).
   const versionLine = c
     ? h('div', { className: 'uc-compare', 'data-uc-compare': c.status },
@@ -536,8 +575,9 @@ function renderSourceVersion(render: () => void): HTMLElement {
           : c.status === 'up_to_date' ? realmBadge('stale', 'up to date')
           : c.status === 'rejected' ? realmBadge('diverged', `rejected: ${c.reason ?? 'policy'}`)
           : realmBadge('stale', c.status),
+        updateAvailable && bump ? realmBadge(bump === 'major' ? 'diverged' : 'stale', bump) : null,
         updateAvailable
-          ? h('button', { className: 'uc-upgrade-cta', 'data-uc-upgrade': '', disabled: !!S.busy, onclick: () => void callLifecycle('preview', render) }, `Upgrade to v${c.available} →`)
+          ? h('button', { className: 'uc-upgrade-cta', 'data-uc-upgrade': '', disabled: !!S.busy, onclick: () => void runUpgrade(render) }, S.busy === 'run' ? 'Upgrading…' : `Upgrade to v${c.available} →`)
           : null,
       )
     : h('div', { className: 'uc-hint' }, S.source ? 'Run Check to compare your deployed version against the latest release.' : 'Configure a release source below, then run Check.');
@@ -552,7 +592,22 @@ function renderSourceVersion(render: () => void): HTMLElement {
         h('button', { 'data-uc-source-edit': '', onclick: () => editSource(render) }, S.source ? 'Edit source' : 'Configure source'),
       );
 
-  return h('div', { className: 'uc-header', 'data-uc-header': '' }, versionLine, sourceLine);
+  // Outcome of the last one-click upgrade: a preflight block (with the failing gates), or the run result.
+  const r = S.runOutcome;
+  const outcomePanel = !r ? null
+    : r.status === 'blocked'
+      ? h('div', { className: 'uc-run-outcome uc-run-blocked', 'data-uc-run': 'blocked' },
+          h('strong', {}, 'Upgrade blocked by preflight'),
+          ...((r.preflight?.gates ?? []).filter((g) => !g.ok).map((g) => h('div', { className: 'uc-run-gate' }, `✗ ${g.name}: ${g.detail}`))),
+        )
+      : r.status === 'no_release'
+        ? h('div', { className: 'uc-run-outcome', 'data-uc-run': 'no_release' }, r.message ?? 'No release to apply.')
+        : h('div', { className: `uc-run-outcome${r.outcome?.needsDeploy ? ' uc-run-deploy' : ''}`, 'data-uc-run': 'ran', 'data-uc-run-status': r.outcome?.status ?? '' },
+            h('strong', {}, r.outcome?.headline ?? 'Upgrade ran'),
+            r.outcome?.detail ? h('div', { className: 'uc-run-detail' }, r.outcome.detail) : null,
+          );
+
+  return h('div', { className: 'uc-header', 'data-uc-header': '' }, versionLine, sourceLine, outcomePanel);
 }
 
 /** A lifecycle step button. */

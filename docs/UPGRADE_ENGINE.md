@@ -233,6 +233,27 @@ Two safety proofs the engine guarantees and the tests assert: an operator's **cu
 to the global reconcile by construction), and a **deferred** batch holds exactly its dependents until the code
 it needs is merged.
 
+### One-click upgrade
+
+The Upgrade Center's **Upgrade** button (`POST /api/admin/upgrade/run`) runs the whole flow as one action so an
+operator doesn't drive the steps by hand:
+
+1. **Preflight** — if a hard gate fails the run stops and returns the failing gates (nothing is mutated); pass
+   `{ force: true }` to override.
+2. **Derive the code gate** — the unresolved code conflicts already recorded (from a scan) become the
+   `unresolvedCodePaths` automatically, so any file you edited that the release also changed defers its dependent
+   schema + data. You never pass that list by hand.
+3. **Apply** — as above.
+4. **Outcome** — a plain-language result: the **bump type** (patch · minor · major, by semver), how many
+   un-customized items were auto-updated, and the honest follow-up: *"N code files you changed also changed
+   upstream — merge them, then redeploy"* (Community), or *"redeploy to run the new code"* / *"nothing to
+   deploy"*. The version panel shows the same bump badge next to *update available* so you can gauge risk before
+   you click.
+
+The split still holds: config and data are applied live; code changes take effect on the next deploy. For a
+Private/enterprise instance (which doesn't edit code) there are no per-file merges — the outcome just reports the
+data changes and that a redeploy will run the new code.
+
 ## Verify and rollback
 
 Applying the changes isn't the finish line — the engine then **verifies** the instance actually works, and can
