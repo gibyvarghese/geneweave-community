@@ -326,6 +326,14 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       if (!verifier) return { status: 'not_configured' as const };
       return importResolutionBundle(ctx as unknown as SqlClient, 'postgres', bundle, verifier, { edition: bundleEditionFromEnv(), ...(opts ?? {}) });
     },
+    async pruneRealmVersions(opts?: { keepPerKey?: number; family?: string; dryRun?: boolean }) {
+      const { pruneRealmVersions } = await import('../realm-version-prune.js');
+      return pruneRealmVersions(ctx as unknown as SqlClient, 'postgres', opts ?? {});
+    },
+    async listUpgradeTelemetry(opts?: { event?: string; limit?: number }) {
+      const { listUpgradeTelemetry } = await import('../upgrade-telemetry.js');
+      return listUpgradeTelemetry(ctx as unknown as SqlClient, 'postgres', opts ?? {});
+    },
 
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {

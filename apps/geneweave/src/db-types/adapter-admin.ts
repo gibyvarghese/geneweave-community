@@ -279,4 +279,8 @@ export interface IAdminStore {
   exportUpgradeResolutionBundle?(opts?: { runId?: string }): Promise<import('../upgrade-bundle.js').SignedResolutionBundle | { status: 'not_configured' }>;
   /** Upgrade Engine — Propagation: verify + apply a signed resolution bundle (or `{status:'not_configured'}` if no trusted keys). */
   importUpgradeResolutionBundle?(bundle: import('../upgrade-bundle.js').SignedResolutionBundle, opts?: { resolvedBy?: string | null }): Promise<import('../upgrade-bundle.js').ImportBundleResult | { status: 'not_configured' }>;
+  /** Upgrade Engine — Hardening: prune the realm_versions log (keeps head-window + live-referenced + pinned versions). */
+  pruneRealmVersions?(opts?: { keepPerKey?: number; family?: string; dryRun?: boolean }): Promise<import('../realm-version-prune.js').PruneResult>;
+  /** Upgrade Engine — Hardening: read recent local upgrade telemetry (PII-free lifecycle events, newest first). */
+  listUpgradeTelemetry?(opts?: { event?: string; limit?: number }): Promise<import('../upgrade-telemetry.js').UpgradeTelemetryRow[]>;
 }

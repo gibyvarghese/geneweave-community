@@ -296,8 +296,15 @@ kept because you'd customised it, and what needs a look — ordered by priority 
 guardrails first). Schema migrations are tracked in a ledger so each one runs once and only once, and the
 database is snapshotted before an upgrade touches it so a failed upgrade rolls back cleanly. None of this
 needs configuration — it's simply how startup works. Set `GENEWEAVE_ENABLE_LLM_JUDGES=1` and the other
-documented flags as usual; the reconcile respects your choices. See
-[`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md) for the full model.
+documented flags as usual; the reconcile respects your choices.
+
+Beyond the startup reconcile, the engine can discover + cryptographically verify releases, apply them across
+package/code/schema/data layers with auto-rollback, **automate** the safe parts of the review queue with rules,
+**propagate** triage decisions between instances as signed bundles, and **prune** its version-log history
+(always keeping the head, anything a live record references, and every tenant-pinned version). Telemetry is
+local and opt-out. See [`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md) for the full model,
+[`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) for operator/publisher/private-edition procedures, and
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the update-security threat model.
 
 ---
 
@@ -317,6 +324,9 @@ below set the initial defaults (full list in [`.env.example`](./.env.example)).
 | Cost budgets | Admin → Monitoring → Cost Policies | — |
 | Sign-in token secret | — | `JWT_SECRET` |
 | Database | SQLite (default) or Postgres — see [Running on Postgres](#running-on-postgres) | `WEAVE_DB`, `DATABASE_URL`, `WEAVE_DB_PATH` |
+| Release updates | trusted publisher keys + repo | `GENEWEAVE_UPGRADE_REPO`, `GENEWEAVE_UPGRADE_TRUSTED_KEYS`, `GENEWEAVE_EDITION` |
+| Resolution-bundle signing / trust | publisher/fleet keys | `GENEWEAVE_UPGRADE_SIGNING_KEY(_CREDENTIAL_ID)`, `GENEWEAVE_UPGRADE_BUNDLE_TRUSTED_KEYS` |
+| Telemetry (local, opt-out) | — | `GENEWEAVE_TELEMETRY=0` / `DO_NOT_TRACK=1`; `OTEL_EXPORTER_OTLP_ENDPOINT` |
 
 > **Note:** guardrail changes are applied when the server starts, so restart after toggling judges on/off.
 

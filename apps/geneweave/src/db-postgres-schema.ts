@@ -2851,6 +2851,20 @@ CREATE TABLE IF NOT EXISTS "upgrade_family_policy" (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_upgrade_family_policy_logical_owner ON upgrade_family_policy(logical_key, COALESCE(owner_tenant_id, ''));
 CREATE INDEX IF NOT EXISTS idx_upgrade_family_policy_deprecated ON upgrade_family_policy(deprecated_at);
 
+-- Upgrade Engine — local, PII-free upgrade-lifecycle telemetry (m176). Aggregate operational facts only.
+CREATE TABLE IF NOT EXISTS "upgrade_telemetry" (
+  "id" TEXT PRIMARY KEY,
+  "event" TEXT NOT NULL,
+  "outcome" TEXT,
+  "edition" TEXT,
+  "dialect" TEXT,
+  "from_version" TEXT,
+  "to_version" TEXT,
+  "counts_json" TEXT,
+  "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS')
+);
+CREATE INDEX IF NOT EXISTS idx_upgrade_telemetry_event ON upgrade_telemetry(event, created_at);
+
 CREATE TABLE IF NOT EXISTS "recipe_configs" (
   "id" TEXT,
   "name" TEXT NOT NULL,

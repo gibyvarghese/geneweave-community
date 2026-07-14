@@ -13,6 +13,7 @@ import {
   GEN_AI,
 } from '@weaveintel/observability';
 import type { DatabaseAdapter } from './db.js';
+import { telemetryEnabled } from './telemetry-config.js';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -98,6 +99,8 @@ export async function recordTraceSpans(
   systemPromptSha256?: string,
   realmProvenance?: unknown,
 ): Promise<void> {
+  // Global telemetry opt-out (DO_NOT_TRACK / GENEWEAVE_TELEMETRY): when opted out, record no run traces at all.
+  if (!telemetryEnabled()) return;
   try {
     // Root span
     const rootSpanId = newUUIDv7();

@@ -1279,6 +1279,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
     if (!verifier) return { status: 'not_configured' };
     return importResolutionBundle(sqliteSqlClient(this.d), 'sqlite', bundle, verifier, { edition: bundleEditionFromEnv(), ...(opts ?? {}) });
   }
+  /** Upgrade Engine — prune the realm_versions log (keeps head-window + live-referenced + pinned versions). */
+  async pruneRealmVersions(opts?: { keepPerKey?: number; family?: string; dryRun?: boolean }): Promise<import('./realm-version-prune.js').PruneResult> {
+    const { pruneRealmVersions } = await import('./realm-version-prune.js');
+    return pruneRealmVersions(sqliteSqlClient(this.d), 'sqlite', opts ?? {});
+  }
+  /** Upgrade Engine — read recent local upgrade telemetry (PII-free lifecycle events, newest first). */
+  async listUpgradeTelemetry(opts?: { event?: string; limit?: number }): Promise<import('./upgrade-telemetry.js').UpgradeTelemetryRow[]> {
+    const { listUpgradeTelemetry } = await import('./upgrade-telemetry.js');
+    return listUpgradeTelemetry(sqliteSqlClient(this.d), 'sqlite', opts ?? {});
+  }
 
   /**
    * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply
