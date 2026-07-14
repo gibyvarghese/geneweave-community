@@ -368,6 +368,37 @@ git branch above); the git round-trip is the primary "resolve anywhere" mechanis
   WAL-checkpointed file copy (near-free), for Postgres a `pg_dump` — so a failed upgrade restores cleanly to
   where you were.
 
+## Pruning the version log
+
+Every published default lands one immutable row in `realm_versions` (the drift Base/Remote payloads live
+here). Content-addressing keeps it deduped, but a long-lived instance still accumulates historical payloads for
+records nobody references any more. `POST /api/admin/upgrade/prune-versions` garbage-collects that tail — and it
+is deliberately conservative about what it keeps. A version is deleted only if it is in **none** of these:
+
+- **the head window** — the newest `keepPerKey` versions per record (default 10); the head is the Remote leg
+  every drift/diff/reconcile reads, so it is never deletable;
+- **live-referenced** — any version whose `content_hash` a live row still points at via its `origin_hash`
+  (the Base it was forked/baselined from) or current `content_hash`;
+- **pinned** — any version a tenant has pinned (`realm_tenant_state.pinned_version`); deleting a pinned version
+  would silently drop that tenant back to the current default, exactly what the pin exists to prevent.
+
+Pass `{ dryRun: true }` to see the plan (how many *would* be pruned) without deleting, `{ family }` to scope to
+one family, `{ keepPerKey }` to tune retention. It is idempotent and dialect-neutral. **Scale:** pruning a
+10,000-version log completes in tens of milliseconds (~400k rows/s); it processes one family at a time, so peak
+memory is bounded by a single family's version rows, not the whole log.
+
+## Telemetry (opt-out)
+
+geneWeave records telemetry **locally** — LLM run traces (`traces`/`metrics`) and a light, PII-free stream of
+upgrade-lifecycle events (`upgrade_telemetry`: event, outcome, edition, dialect, versions, aggregate counts —
+no user id, key, path, or payload). **Nothing is phoned home**; data stays in this instance's own database, and
+only reaches a collector if *you* set `OTEL_EXPORTER_OTLP_ENDPOINT`. Because nothing leaves the box by default,
+there is no cross-border transfer and no consent flow to manage.
+
+To turn telemetry off entirely, set `GENEWEAVE_TELEMETRY=0` (also `false`/`off`/`no`) or the cross-vendor
+`DO_NOT_TRACK=1`. When opted out, both the run-trace recorder and the upgrade emitter become no-ops — nothing is
+recorded. Read the recent upgrade events at `GET /api/admin/upgrade/telemetry`.
+
 ## Both engines, one implementation
 
 Everything above is written once against the framework's SQL seam and runs identically on **SQLite** and
@@ -385,6 +416,11 @@ already know still apply and are respected by the reconcile:
 | `GENEWEAVE_UPGRADE_SIGNING_KEY` (or `…_CREDENTIAL_ID`) | Ed25519 private key (PEM / vault credential id) that signs exported resolution bundles; absent ⇒ export disabled |
 | `GENEWEAVE_UPGRADE_BUNDLE_TRUSTED_KEYS` | PEM bundle of public keys whose signature an *imported* resolution bundle is trusted under; absent ⇒ import disabled |
 | `GENEWEAVE_EDITION` | the instance edition, stamped on exported bundles and checked on import (default `community`) |
+| `GENEWEAVE_TELEMETRY=0` / `DO_NOT_TRACK=1` | opt out of ALL local telemetry (run traces + upgrade-lifecycle events); default is on/local-only |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | when set, telemetry is also exported to your own OpenTelemetry collector (unset ⇒ local only) |
+
+For the operator, publisher, and private-edition runbooks see [`RUNBOOKS.md`](RUNBOOKS.md); for the update-
+security threat model (and its TUF mapping) see [`THREAT_MODEL.md`](THREAT_MODEL.md).
 
 ## Where it lives (for contributors)
 
@@ -410,6 +446,8 @@ already know still apply and are respected by the reconcile:
 | L2 Private patch reapply | `apps/geneweave/src/code-patch.ts` |
 | queue automation (resolution rules) + per-family policy rows | `apps/geneweave/src/upgrade-automation.ts`; tables + `resolution_source` column `migrations/m175-upgrade-automation.ts`; both registered in `realm-families.ts` |
 | signed resolution bundles (export/import) | `apps/geneweave/src/upgrade-bundle.ts` — reuses `signManifest`/`createEd25519Verifier` from `@weaveintel/upgrade` |
+| version-log retention pruning (respects head/refs/pins) | `apps/geneweave/src/realm-version-prune.ts` |
+| telemetry opt-out gate + local upgrade telemetry | `apps/geneweave/src/telemetry-config.ts`, `upgrade-telemetry.ts`; table `migrations/m176-upgrade-telemetry.ts`; run-trace guard in `chat-trace-utils.ts` |
 | per-node workflow merge | `apps/geneweave/src/workflow-merge.ts`, wired into `realm-diff.ts` (`applyRealmMerge`/`loadThreeWayDiff`) |
 | Upgrade Center screen | `apps/geneweave-ui/src/ui/upgrade-center-ui.ts` (customView `upgrade-center`); composes `realm-ui.ts` badges + diff |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |

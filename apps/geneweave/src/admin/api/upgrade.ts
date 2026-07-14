@@ -363,4 +363,30 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
       json(res, 200, out);
     } catch (err) { json(res, 502, { error: 'import failed', detail: (err as Error).message }); }
   });
+
+  // ── Hardening: prune the realm_versions log (retention GC that respects pins) ─────────────────────
+  // POST { keepPerKey?, family?, dryRun? } — keeps head-window + live-referenced + pinned versions.
+  router.post('/api/admin/upgrade/prune-versions', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.pruneRealmVersions !== 'function') { json(res, 501, { error: 'pruning not supported by this adapter' }); return; }
+    let body: { keepPerKey?: unknown; family?: unknown; dryRun?: unknown } = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { /* prune all with defaults */ }
+    const opts: { keepPerKey?: number; family?: string; dryRun?: boolean } = {};
+    if (typeof body.keepPerKey === 'number') opts.keepPerKey = body.keepPerKey;
+    if (typeof body.family === 'string') opts.family = body.family;
+    if (typeof body.dryRun === 'boolean') opts.dryRun = body.dryRun;
+    try { json(res, 200, await db.pruneRealmVersions(opts)); }
+    catch (err) { json(res, 400, { error: 'prune failed', detail: (err as Error).message }); }
+  });
+
+  // Read recent local upgrade telemetry (PII-free lifecycle events). ?event= / ?limit= optional.
+  router.get('/api/admin/upgrade/telemetry', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.listUpgradeTelemetry !== 'function') { json(res, 501, { error: 'telemetry not supported by this adapter' }); return; }
+    const url = new URL(req.url ?? '', 'http://localhost');
+    const opts: { event?: string; limit?: number } = {};
+    const ev = url.searchParams.get('event'); if (ev) opts.event = ev;
+    const lim = url.searchParams.get('limit'); if (lim && Number.isFinite(Number(lim))) opts.limit = Number(lim);
+    json(res, 200, { events: await db.listUpgradeTelemetry(opts) });
+  });
 }

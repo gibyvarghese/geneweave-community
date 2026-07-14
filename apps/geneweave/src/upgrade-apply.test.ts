@@ -124,6 +124,25 @@ describe('Upgrade Engine — apply orchestration (real booted SQLite)', () => {
     expect(r.status).toBe('succeeded');
   });
 
+  it('CRASH RESUME PER STAGE: kill -9 after L3 ledgered → re-run skips every applied batch (no double-apply) and L4 converges in_sync', async () => {
+    // Simulate a process kill mid-upgrade AFTER L3 finished: the schema ledger already has every batch, and a
+    // 'running' apply run is left behind. A restart must NOT re-apply any batch (the ledger skips them) and
+    // reconcile must converge to in_sync (content-addressed), not double-adopt.
+    runUpgradeMigrations(raw());                                   // L3 completed just before the kill → all batches ledgered
+    const ledgerBefore = (raw().prepare(`SELECT COUNT(*) c FROM schema_migrations`).get() as { c: number }).c;
+    const stale = await beginUpgradeRun(client(), 'sqlite', { mode: 'apply', toVersion: '2.0.0' }); // the 'running' run the kill left
+
+    const r = await applyUpgrade(coreCtx({ force: true }));
+    expect(r.resumed).toBe(true);
+    expect(r.runId).toBe(stale);
+    expect(r.status).toBe('succeeded');
+    expect(r.schema?.applied ?? []).toEqual([]);                  // ledger-skip: zero batches re-applied
+    expect(r.content?.adopted ?? 0).toBe(0);                      // L4 content-addressed: nothing to re-adopt
+    const ledgerAfter = (raw().prepare(`SELECT COUNT(*) c FROM schema_migrations`).get() as { c: number }).c;
+    expect(ledgerAfter).toBe(ledgerBefore);                       // no duplicate ledger rows — converged, not re-applied
+    expect(runsOf().length).toBe(1);
+  });
+
   it('ROLLBACK: an L3 failure restores the snapshot and finishes rolled_back', async () => {
     const r = await applyUpgrade(coreCtx({
       force: true,

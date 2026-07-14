@@ -35,6 +35,7 @@ import {
   setRunSnapshotRef, listRetainedSnapshots,
 } from './upgrade-run-store.js';
 import { reconcileAllRealmFamilies, type RealmSeedDefaults } from './realm-seed-reconcile.js';
+import { recordUpgradeTelemetry } from './upgrade-telemetry.js';
 import type { VerifyResult } from './upgrade-verify.js';
 
 /** The L2 handling mode, selected by edition (Community merges; Private swaps a locked tree). */
@@ -235,6 +236,7 @@ export async function applyUpgrade(ctx: ApplyContext): Promise<ApplyResult> {
       await clearMaintenance(ctx.client(), dialect);
       await setRunSnapshotRef(ctx.client(), dialect, runId, null); // snapshot consumed by the restore
       await finishUpgradeRun(ctx.client(), dialect, runId, { status: 'rolled_back', summary: { error: 1 }, at });
+      await recordUpgradeTelemetry(ctx.client(), dialect, 'apply', { outcome: 'rolled_back', edition: manifest.edition, fromVersion: ctx.installedVersion, toVersion: version, counts: { schemaError: 1 } });
       await handle.discard();
       return { status: 'rolled_back', runId, error: (err as Error).message };
     }
@@ -273,6 +275,7 @@ export async function applyUpgrade(ctx: ApplyContext): Promise<ApplyResult> {
         });
         await setRunSnapshotRef(ctx.client(), dialect, runId, null); // snapshot consumed by the restore
         await finishUpgradeRun(ctx.client(), dialect, runId, { status: 'rolled_back', summary: { verifyFailed: 1 }, at });
+      await recordUpgradeTelemetry(ctx.client(), dialect, 'apply', { outcome: 'rolled_back', edition: manifest.edition, fromVersion: ctx.installedVersion, toVersion: version, counts: { verifyFailed: 1 } });
         await handle.discard();
         return { status: 'rolled_back', runId, resumed: resuming, verify, error: `verification failed: ${failed}` };
       }
@@ -293,6 +296,11 @@ export async function applyUpgrade(ctx: ApplyContext): Promise<ApplyResult> {
       status,
       summary: { schemaApplied: applied.length, schemaDeferred: deferredBatchIds.size, contentAdopted: content.adopted, pending },
       at,
+    });
+    // Local, PII-free telemetry: the apply's shape (versions + aggregate counts). Best-effort; opt-out-aware.
+    await recordUpgradeTelemetry(ctx.client(), dialect, 'apply', {
+      outcome: status, edition: manifest.edition, fromVersion: ctx.installedVersion, toVersion: version,
+      counts: { adopted: content.adopted, published: content.published, review: content.review, pending },
     });
     // 12. RETAIN this run's snapshot (so it can be rolled back on demand) and discard every OLDER retained
     //     snapshot — bounded retention keeps at most one, the newest successful apply's.
