@@ -32,7 +32,18 @@ import {
 /** The three per-item review actions. */
 export type ReviewAction = 'keep' | 'adopt' | 'defer';
 /** The resolution string persisted for each action. */
-const RESOLUTION: Record<ReviewAction, string> = { keep: 'kept', adopt: 'adopted', defer: 'deferred' };
+export const RESOLUTION: Record<ReviewAction, string> = { keep: 'kept', adopt: 'adopted', defer: 'deferred' };
+/** Reverse of {@link RESOLUTION}: the action that produced a persisted resolution string. */
+const ACTION_FOR_RESOLUTION: Readonly<Record<string, ReviewAction>> = Object.freeze({ kept: 'keep', adopted: 'adopt', deferred: 'defer' });
+/**
+ * Map a persisted resolution string back to the action that produced it — the inverse of {@link RESOLUTION}.
+ * Used when replaying another instance's decision from a signed bundle.
+ * @param resolution a stored `upgrade_details.resolution` value ('kept' | 'adopted' | 'deferred' | …).
+ * @returns the {@link ReviewAction}, or null if the string isn't a replayable review action (e.g. 'merged').
+ */
+export function actionForResolution(resolution: string): ReviewAction | null {
+  return Object.hasOwn(ACTION_FOR_RESOLUTION, resolution) ? ACTION_FOR_RESOLUTION[resolution]! : null;
+}
 
 /** The outcome of resolving (or undoing) one item. */
 export interface ReviewResult {
@@ -80,12 +91,14 @@ function undoColumns(family: string): string[] {
  * @param action 'keep' | 'adopt' | 'defer'.
  * @param opts.resolvedBy who resolved it (a user id / 'automation').
  * @param opts.comment an optional note (used by defer).
+ * @param opts.resolutionSource provenance stamped on the resolution: null = interactive, 'automation' = a
+ *   resolution rule, 'imported' = a signed resolution bundle. Passed straight to the ledger for audit.
  * @returns a {@link ReviewResult}. Side effects: marks the detail resolved; for `adopt`, overwrites the live
  *   record with the shipped default (re-baselined) and stores the pre-adopt snapshot for undo.
  */
 export async function resolveReviewItem(
   client: SqlClient, dialect: SqlDialect, detailId: string, action: ReviewAction,
-  opts: { resolvedBy?: string | null; comment?: string } = {},
+  opts: { resolvedBy?: string | null; comment?: string; resolutionSource?: string | null } = {},
 ): Promise<ReviewResult> {
   const detail = await getUpgradeDetail(client, dialect, detailId);
   if (!detail) return { ok: false, detailId, reason: 'item not found' };
@@ -112,7 +125,7 @@ export async function resolveReviewItem(
     if (!merge.ok) return { ok: false, detailId, reason: merge.reason };
 
     await setUpgradeDetailUndo(client, dialect, detailId, JSON.stringify(undo));
-    await resolveUpgradeDetail(client, dialect, detailId, { resolution: RESOLUTION.adopt, resolvedBy: opts.resolvedBy ?? null });
+    await resolveUpgradeDetail(client, dialect, detailId, { resolution: RESOLUTION.adopt, resolvedBy: opts.resolvedBy ?? null, resolutionSource: opts.resolutionSource ?? null });
     return { ok: true, detailId, action };
   }
 
@@ -123,7 +136,7 @@ export async function resolveReviewItem(
       [` [deferred: ${opts.comment}]`, detailId],
     );
   }
-  await resolveUpgradeDetail(client, dialect, detailId, { resolution: RESOLUTION[action], resolvedBy: opts.resolvedBy ?? null });
+  await resolveUpgradeDetail(client, dialect, detailId, { resolution: RESOLUTION[action], resolvedBy: opts.resolvedBy ?? null, resolutionSource: opts.resolutionSource ?? null });
   return { ok: true, detailId, action };
 }
 

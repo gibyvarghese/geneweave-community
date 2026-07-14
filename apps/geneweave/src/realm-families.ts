@@ -24,6 +24,7 @@ import { MODEL_PRICING_SEMANTIC_COLS, TASK_TYPE_SEMANTIC_COLS, PROVIDER_TOOL_ADA
 import { LIVE_HANDLER_KIND_SEMANTIC_COLS, LIVE_ATTENTION_POLICY_SEMANTIC_COLS } from './migrations/m166-realm-columns-live-registries.js';
 import { SCAFFOLD_TEMPLATE_SEMANTIC_COLS } from './migrations/m167-realm-columns-templates.js';
 import { CAPABILITY_SCORE_SEMANTIC_COLS } from './migrations/m168-realm-columns-capability-scores.js';
+import { RESOLUTION_RULE_SEMANTIC_COLS, FAMILY_POLICY_SEMANTIC_COLS } from './migrations/m175-upgrade-automation.js';
 
 /**
  * How a family derives the logical key from a row: the NAME OF THE COLUMN the logical key falls back to
@@ -84,6 +85,11 @@ export const REALM_FAMILIES: Readonly<Record<string, RealmFamilySpec>> = Object.
   // default rows, the migration stores it for real rows. Semantic cols are the CONFIG fields only (the
   // auto-updating production signals are excluded so a live install doesn't perpetually read as drifted).
   model_capability_scores: { family: 'model_capability_scores', table: 'model_capability_scores', semanticCols: CAPABILITY_SCORE_SEMANTIC_COLS, logicalKeyFrom: 'id', computeLogicalKey: capabilityCellKey },
+  // ── Upgrade Engine (Automation + propagation): the governance config for review-queue automation ──────
+  // Registering these as realm families is what makes a rule/policy CHANGE flow through the existing
+  // propose → review → promote dual-control (a tenant admin forks + proposes; a platform admin approves).
+  upgrade_resolution_rules: { family: 'upgrade_resolution_rules', table: 'upgrade_resolution_rules', semanticCols: RESOLUTION_RULE_SEMANTIC_COLS, logicalKeyFrom: 'key' },
+  upgrade_family_policy:    { family: 'upgrade_family_policy',    table: 'upgrade_family_policy',    semanticCols: FAMILY_POLICY_SEMANTIC_COLS, logicalKeyFrom: 'target_family' },
 });
 
 /**

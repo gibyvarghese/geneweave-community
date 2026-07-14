@@ -72,6 +72,13 @@ How eagerly a family adopts a *stale* default (one you never touched) is a per-f
 (surface even untouched changes for explicit review). The policy is conservative by default and easy to
 audit in one place.
 
+Each family ships with a built-in default, and an operator can **override it per family** by writing a row to
+`upgrade_family_policy` (`PUT /api/admin/upgrade/family-policy/:family { policy }`). An override steers the very
+next reconcile — e.g. setting `skills` to `never` makes even an untouched skill change surface for review
+instead of adopting automatically. Overrides are **governed config**: the policy table is a realm family, so a
+change flows through the same propose → review → promote dual-control every other catalog change does. With no
+override rows, behaviour is identical to the built-in defaults.
+
 ## Structured fields (workflows)
 
 Most built-ins are flat records, and the reconcile compares them field by field. A workflow is different:
@@ -269,6 +276,46 @@ The review actions are HTTP endpoints too, for automation:
 | `POST /api/admin/upgrade/review/:id/undo` | re-open a resolved item (an adopt is reverted) |
 | `GET /api/admin/upgrade/attention?family=…` | the drifted + version-lagging records in a family |
 
+## Automating the queue with resolution rules
+
+Triaging the same low-risk items release after release is toil, so the queue can be **automated with rules**.
+A resolution rule matches unresolved items by any of family, priority, or disposition (an absent dimension
+means "any") and carries an action — **keep**, **adopt**, **defer**, or **tag**. `POST /api/admin/upgrade/rules/apply`
+walks the queue and applies the **first matching rule** per item, lowest `seq` first, stamping every automated
+resolution `resolution_source = 'automation'` for audit. So "auto-adopt every P5 pricing update" or "keep-mine
+all diverged prompts" becomes a standing rule instead of a repeated click.
+
+Two invariants make this safe:
+
+- **A P1 is never auto-resolved.** A guardrail change, a namespace collision, or a genuine both-sides conflict
+  is refused by any resolving rule — the same hard guardrail that blocks bulk resolve. A rule may only `tag` a
+  P1 (annotate it for triage), never keep/adopt/defer it.
+- **Rules are governed config.** The rules table is a realm family, so *changing a rule* flows through the same
+  propose → review → promote dual-control as any catalog change — automation can't be silently re-pointed.
+
+An automation pass is serialized by the upgrade mutex, so two passes can't race; the terminal resolution write
+is a single-shot claim (`WHERE resolution IS NULL`), so every item is resolved exactly once even under
+contention. Rules are managed at `GET/POST /api/admin/upgrade/rules`, `PUT/DELETE …/rules/:id`.
+
+## Propagating decisions across instances
+
+A decision made once on staging shouldn't be re-made by hand on production. **Resolution bundles** carry the
+triage across instances: `POST /api/admin/upgrade/resolutions/export` emits a **signed** record of every
+resolved item — its `(family, logical_key, remote_hash)` key and the decision — and
+`POST /api/admin/upgrade/resolutions/import` verifies and replays it.
+
+Import is deliberately conservative:
+
+- **Signature first.** The bundle is signed with the same Ed25519 construction the release manifest uses; a
+  bad or untrusted signature applies **nothing**. Production trusts staging's public key via
+  `GENEWEAVE_UPGRADE_BUNDLE_TRUSTED_KEYS`; the signing key comes from `GENEWEAVE_UPGRADE_SIGNING_KEY` (or a
+  vault credential id).
+- **Matched on the full triple.** A decision only resolves a local item whose `(family, logical_key,
+  remote_hash)` matches *exactly*. If production shipped **different content** for that key (a different
+  `remote_hash`), the entry is **skipped**, never blindly adopted — the staging decision was about different
+  bytes. Applied resolutions are stamped `resolution_source = 'imported'`.
+- **P1 still refused**, and a cross-edition bundle is rejected.
+
 ## The application-code layer (L2)
 
 A running instance can't hot-swap its own source — new code arrives by deploy. But it *can* tell you what you've
@@ -335,6 +382,9 @@ already know still apply and are respected by the reconcile:
 | variable | effect |
 |---|---|
 | `GENEWEAVE_ENABLE_LLM_JUDGES=1` | enable the heavier LLM-judge guardrails on a fresh install |
+| `GENEWEAVE_UPGRADE_SIGNING_KEY` (or `…_CREDENTIAL_ID`) | Ed25519 private key (PEM / vault credential id) that signs exported resolution bundles; absent ⇒ export disabled |
+| `GENEWEAVE_UPGRADE_BUNDLE_TRUSTED_KEYS` | PEM bundle of public keys whose signature an *imported* resolution bundle is trusted under; absent ⇒ import disabled |
+| `GENEWEAVE_EDITION` | the instance edition, stamped on exported bundles and checked on import (default `community`) |
 
 ## Where it lives (for contributors)
 
@@ -358,6 +408,8 @@ already know still apply and are respected by the reconcile:
 | L2 code baseline store + scan orchestration | `apps/geneweave/src/code-baseline-store.ts`; baseline table `migrations/m174-upgrade-code-baseline.ts` |
 | L2 git round-trip (checkout/import) | `apps/geneweave/src/code-git.ts` |
 | L2 Private patch reapply | `apps/geneweave/src/code-patch.ts` |
+| queue automation (resolution rules) + per-family policy rows | `apps/geneweave/src/upgrade-automation.ts`; tables + `resolution_source` column `migrations/m175-upgrade-automation.ts`; both registered in `realm-families.ts` |
+| signed resolution bundles (export/import) | `apps/geneweave/src/upgrade-bundle.ts` — reuses `signManifest`/`createEd25519Verifier` from `@weaveintel/upgrade` |
 | per-node workflow merge | `apps/geneweave/src/workflow-merge.ts`, wired into `realm-diff.ts` (`applyRealmMerge`/`loadThreeWayDiff`) |
 | Upgrade Center screen | `apps/geneweave-ui/src/ui/upgrade-center-ui.ts` (customView `upgrade-center`); composes `realm-ui.ts` badges + diff |
 | advisory mutex | `apps/geneweave/src/upgrade-lock-store.ts`; `migrations/m170-upgrade-lock.ts` (SQLite); `db-postgres-schema.ts` (Postgres) |

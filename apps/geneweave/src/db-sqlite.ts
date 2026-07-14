@@ -1225,6 +1225,61 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return runCodeScan(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot());
   }
 
+  // ── Upgrade Engine — Automation (resolution rules + per-family auto-adopt policy) ──────────────────
+  /** Apply the active resolution rules across the review queue. Serialized by the upgrade mutex so two passes
+   *  can't race (P1 is never auto-resolved regardless). Returns a zero result if a pass is already running. */
+  async applyUpgradeResolutionRules(opts?: { resolvedBy?: string | null; family?: string; priority?: string }): Promise<import('./upgrade-automation.js').ApplyRulesResult> {
+    const { applyResolutionRules } = await import('./upgrade-automation.js');
+    const { withUpgradeLock } = await import('./upgrade-lock-store.js');
+    const c = sqliteSqlClient(this.d);
+    return withUpgradeLock(c, 'sqlite', 'resolution-automation', () => applyResolutionRules(c, 'sqlite', opts ?? {}),
+      { evaluated: 0, resolved: 0, tagged: 0, skippedP1: 0, unmatched: 0, failed: 0, byAction: {} });
+  }
+  async listUpgradeResolutionRules(opts?: { activeOnly?: boolean }): Promise<import('./upgrade-automation.js').ResolutionRuleRow[]> {
+    const { listResolutionRules } = await import('./upgrade-automation.js');
+    return listResolutionRules(sqliteSqlClient(this.d), 'sqlite', opts ?? {});
+  }
+  async createUpgradeResolutionRule(input: import('./upgrade-automation.js').ResolutionRuleInput, opts?: { createdBy?: string | null }): Promise<import('./upgrade-automation.js').ResolutionRuleRow> {
+    const { createResolutionRule } = await import('./upgrade-automation.js');
+    return createResolutionRule(sqliteSqlClient(this.d), 'sqlite', input, opts ?? {});
+  }
+  async updateUpgradeResolutionRule(id: string, patch: Partial<import('./upgrade-automation.js').ResolutionRuleInput>): Promise<import('./upgrade-automation.js').ResolutionRuleRow | null> {
+    const { updateResolutionRule } = await import('./upgrade-automation.js');
+    return updateResolutionRule(sqliteSqlClient(this.d), 'sqlite', id, patch);
+  }
+  async deleteUpgradeResolutionRule(id: string): Promise<boolean> {
+    const { deleteResolutionRule } = await import('./upgrade-automation.js');
+    return deleteResolutionRule(sqliteSqlClient(this.d), 'sqlite', id);
+  }
+  async listUpgradeFamilyPolicies(): Promise<import('./upgrade-automation.js').FamilyPolicyRow[]> {
+    const { listFamilyPolicies } = await import('./upgrade-automation.js');
+    return listFamilyPolicies(sqliteSqlClient(this.d), 'sqlite');
+  }
+  async setUpgradeFamilyPolicy(family: string, policy: 'always' | 'patch_only' | 'never', opts?: { note?: string | null; updatedBy?: string | null }): Promise<import('./upgrade-automation.js').FamilyPolicyRow> {
+    const { setFamilyPolicy } = await import('./upgrade-automation.js');
+    return setFamilyPolicy(sqliteSqlClient(this.d), 'sqlite', family, policy, opts ?? {});
+  }
+
+  // ── Upgrade Engine — Propagation (signed resolution bundles) ───────────────────────────────────────
+  /** Export the resolved decisions as a signed bundle. Requires a configured signing key (env/vault). */
+  async exportUpgradeResolutionBundle(opts?: { runId?: string }): Promise<import('./upgrade-bundle.js').SignedResolutionBundle | { status: 'not_configured' }> {
+    const { collectResolutionBundle, signResolutionBundle, buildBundleSignerFromEnv, bundleEditionFromEnv } = await import('./upgrade-bundle.js');
+    // Env PEM signing key (the vault-credential path is available in buildBundleSignerFromEnv but, like the
+    // release-token provider, is not wired to getToolCredential here — env is the live source).
+    const signingKey = await buildBundleSignerFromEnv();
+    if (!signingKey) return { status: 'not_configured' };
+    const c = sqliteSqlClient(this.d);
+    const body = await collectResolutionBundle(c, 'sqlite', { edition: bundleEditionFromEnv(), ...(opts?.runId ? { runId: opts.runId } : {}) });
+    return signResolutionBundle(body, signingKey);
+  }
+  /** Verify + apply a signed resolution bundle. Requires configured trusted keys (env). */
+  async importUpgradeResolutionBundle(bundle: import('./upgrade-bundle.js').SignedResolutionBundle, opts?: { resolvedBy?: string | null }): Promise<import('./upgrade-bundle.js').ImportBundleResult | { status: 'not_configured' }> {
+    const { importResolutionBundle, buildBundleVerifierFromEnv, bundleEditionFromEnv } = await import('./upgrade-bundle.js');
+    const verifier = buildBundleVerifierFromEnv();
+    if (!verifier) return { status: 'not_configured' };
+    return importResolutionBundle(sqliteSqlClient(this.d), 'sqlite', bundle, verifier, { edition: bundleEditionFromEnv(), ...(opts ?? {}) });
+  }
+
   /**
    * Restore the SQLite database from a snapshot file and reopen the write connection. Shared by the apply
    * orchestrator's auto-rollback and the manual rollback — a SQLite file restore overwrites the DB, so the

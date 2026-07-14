@@ -261,4 +261,22 @@ export interface IAdminStore {
   runCodeStatus?(): Promise<import('../code-baseline-store.js').CodeStatusOutcome>;
   /** Upgrade Engine — L2: scan the code tree and record its changes as L2 review items. */
   runCodeScan?(): Promise<import('../code-baseline-store.js').CodeScanOutcome>;
+  /** Upgrade Engine — Automation: apply the active resolution rules across the review queue (P1 never auto-resolved). */
+  applyUpgradeResolutionRules?(opts?: { resolvedBy?: string | null; family?: string; priority?: string }): Promise<import('../upgrade-automation.js').ApplyRulesResult>;
+  /** Upgrade Engine — Automation: list resolution rules (all global, or `activeOnly` = the applied set). */
+  listUpgradeResolutionRules?(opts?: { activeOnly?: boolean }): Promise<import('../upgrade-automation.js').ResolutionRuleRow[]>;
+  /** Upgrade Engine — Automation: create a resolution rule. */
+  createUpgradeResolutionRule?(input: import('../upgrade-automation.js').ResolutionRuleInput, opts?: { createdBy?: string | null }): Promise<import('../upgrade-automation.js').ResolutionRuleRow>;
+  /** Upgrade Engine — Automation: update a resolution rule (returns null if not found). */
+  updateUpgradeResolutionRule?(id: string, patch: Partial<import('../upgrade-automation.js').ResolutionRuleInput>): Promise<import('../upgrade-automation.js').ResolutionRuleRow | null>;
+  /** Upgrade Engine — Automation: delete a resolution rule (returns true if removed). */
+  deleteUpgradeResolutionRule?(id: string): Promise<boolean>;
+  /** Upgrade Engine — Automation: list per-family auto-adopt policy overrides. */
+  listUpgradeFamilyPolicies?(): Promise<import('../upgrade-automation.js').FamilyPolicyRow[]>;
+  /** Upgrade Engine — Automation: set (upsert) a family's auto-adopt policy override. */
+  setUpgradeFamilyPolicy?(family: string, policy: 'always' | 'patch_only' | 'never', opts?: { note?: string | null; updatedBy?: string | null }): Promise<import('../upgrade-automation.js').FamilyPolicyRow>;
+  /** Upgrade Engine — Propagation: export the resolved decisions as a signed bundle (or `{status:'not_configured'}` if no signing key). */
+  exportUpgradeResolutionBundle?(opts?: { runId?: string }): Promise<import('../upgrade-bundle.js').SignedResolutionBundle | { status: 'not_configured' }>;
+  /** Upgrade Engine — Propagation: verify + apply a signed resolution bundle (or `{status:'not_configured'}` if no trusted keys). */
+  importUpgradeResolutionBundle?(bundle: import('../upgrade-bundle.js').SignedResolutionBundle, opts?: { resolvedBy?: string | null }): Promise<import('../upgrade-bundle.js').ImportBundleResult | { status: 'not_configured' }>;
 }
