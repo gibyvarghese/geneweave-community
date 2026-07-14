@@ -133,10 +133,13 @@ try {
   check('Available version 999.0.0 shown', (await compare.innerText().catch(() => '')).includes('999.0.0'));
   check('Upgrade CTA rendered', await page.locator('[data-uc-upgrade]').count() === 1);
 
-  // 4f. Upgrade CTA runs Preview → layer cards
+  // 4f. Upgrade CTA runs the one-click upgrade → an outcome panel (this release has empty layers → succeeds).
   await page.locator('[data-uc-upgrade]').click();
-  await page.waitForTimeout(1500);
-  check('Upgrade CTA runs preview (layer cards render)', await page.locator('[data-uc-layers] .uc-layer-card').count() === 4);
+  await page.waitForTimeout(2500);
+  const run = page.locator('[data-uc-run]');
+  check('Upgrade CTA runs the one-click upgrade (outcome panel shown)', await run.count() === 1,
+    await run.innerText().catch(() => ''));
+  check('Outcome reports the upgrade to v999.0.0', (await run.innerText().catch(() => '')).includes('999.0.0'));
 
   check('Zero CSP violations', cspErrors.length === 0, `${cspErrors.length}`);
 } catch (err) {
