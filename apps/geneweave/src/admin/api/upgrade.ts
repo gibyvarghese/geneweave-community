@@ -45,22 +45,70 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
   };
 
   // Discover + verify + record the latest release.
+  //
+  // Source precedence: the operator-managed DB config (upgrade_source_config, set from the UI) wins; the
+  // GENEWEAVE_UPGRADE_* env vars are the fallback for headless/bootstrap deploys. Either way the SAME signed-
+  // manifest trust pipeline runs (Ed25519 → edition → freshness → anti-rollback).
   router.post('/api/admin/upgrade/check', async (_req, res, _params, auth) => {
     if (!requirePlatformAdmin(res, auth)) return;
     const { buildCheckConfigFromEnv, buildUpgradeTokenProvider, getAppVersion } = await import('../../upgrade-check.js');
-    const config = buildCheckConfigFromEnv(getAppVersion(), buildUpgradeTokenProvider());
+    const installedVersion = getAppVersion();
+    const tokenProvider = buildUpgradeTokenProvider(); // env-backed; DB-vault token wiring lands in Phase 3
+    let config = null as import('../../upgrade-check.js').CheckConfig | null;
+    if (typeof db.getUpgradeSourceConfig === 'function') {
+      const stored = await db.getUpgradeSourceConfig();
+      if (stored) {
+        const { buildCheckConfigFromSource } = await import('../../upgrade-source.js');
+        config = buildCheckConfigFromSource(stored, installedVersion, tokenProvider);
+      }
+    }
+    if (!config) config = buildCheckConfigFromEnv(installedVersion, tokenProvider); // env fallback
     if (!config) {
-      json(res, 200, { status: 'not_configured', message: 'Set GENEWEAVE_UPGRADE_REPO and GENEWEAVE_UPGRADE_TRUSTED_KEYS to enable update checks.' });
+      json(res, 200, { status: 'not_configured', message: 'Configure a release source (repo + trusted keys) in the Upgrade Center, or set GENEWEAVE_UPGRADE_REPO / GENEWEAVE_UPGRADE_TRUSTED_KEYS.' });
       return;
     }
     if (typeof db.runUpgradeCheck !== 'function') { json(res, 501, { error: 'update checks not supported by this adapter' }); return; }
     try {
-      json(res, 200, await db.runUpgradeCheck(config));
+      const result = await db.runUpgradeCheck(config);
+      // Echo the deployed version so the UI can render "deployed vX · available vY" without a second call.
+      json(res, 200, { ...result, installedVersion });
     } catch (err) {
       // The check itself surfaces policy failures as `rejected` outcomes; a throw here is a transport or
       // malformed-manifest error. Never echo request internals (or a token) back.
       json(res, 502, { error: 'release check failed', detail: (err as Error).message });
     }
+  });
+
+  // ── Source configuration (where this instance discovers releases) ─────────────────────────────────────
+  // Read the operator-configured release source. Trusted keys are PUBLIC (safe to return); no secret token
+  // is ever stored or returned — only a `tokenCredentialId` reference. Returns { source: null } when unset.
+  router.get('/api/admin/upgrade/source', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.getUpgradeSourceConfig !== 'function') { json(res, 501, { error: 'source config not supported by this adapter' }); return; }
+    json(res, 200, { source: await db.getUpgradeSourceConfig() });
+  });
+
+  // Set the release source: PUT /source { repo, edition?, assetName?, trustedKeysPem, apiBase?, tokenCredentialId?, enabled? }.
+  router.put('/api/admin/upgrade/source', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.setUpgradeSourceConfig !== 'function') { json(res, 501, { error: 'source config not supported by this adapter' }); return; }
+    let body: Record<string, unknown> = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const { validateSourceConfig } = await import('../../upgrade-source.js');
+    const input = {
+      repo: String(body['repo'] ?? ''),
+      edition: String(body['edition'] ?? 'community'),
+      assetName: String(body['assetName'] ?? 'manifest.json'),
+      trustedKeysPem: String(body['trustedKeysPem'] ?? ''),
+      apiBase: body['apiBase'] == null ? null : String(body['apiBase']),
+      tokenCredentialId: body['tokenCredentialId'] == null ? null : String(body['tokenCredentialId']),
+      enabled: body['enabled'] === undefined ? true : Boolean(body['enabled']),
+    };
+    const errors = validateSourceConfig(input);
+    if (errors.length > 0) { json(res, 400, { error: 'invalid source config', errors }); return; }
+    try {
+      json(res, 200, { source: await db.setUpgradeSourceConfig(input, { updatedBy: auth!.userId }) });
+    } catch (err) { json(res, 400, { error: 'save source failed', detail: (err as Error).message }); }
   });
 
   // The most recent check (status view).

@@ -42,6 +42,17 @@ interface ReviewQueue { items: ReviewItem[]; byPriority: Record<string, number>;
 interface AttentionEntry { id: string; logicalKey: string; realm: string; state: string; currentVersion: number | null; latestVersion: number | null; lagging: boolean; }
 interface AttentionReport { family: string; entries: AttentionEntry[]; count: number; }
 
+/** The operator-configured release source (mirrors the server's UpgradeSourceConfigRow; secrets never included). */
+interface SourceConfig {
+  repo: string; edition: string; assetName: string; trustedKeysPem: string;
+  apiBase: string | null; tokenCredentialId: string | null; enabled?: boolean;
+  updatedAt: string | null; updatedBy: string | null;
+}
+/** The editable draft of the source form (a subset the operator types). */
+interface SourceForm { repo: string; edition: string; trustedKeysPem: string; apiBase: string; tokenCredentialId: string; }
+/** The deployed-vs-available comparison derived from a check result. */
+interface VersionCompare { installed: string; available: string | null; status: string; reason?: string }
+
 /** An unresolved L2 code conflict (a file both the operator and the release changed). */
 interface CodeConflictItem { detailId: string; path: string; priority: string; }
 /** The three text sides + base-informed pre-merge for one conflicted file (or a git_required marker). */
@@ -61,10 +72,15 @@ interface UCState {
   attention: AttentionReport | null;
   codeConflicts: CodeConflictItem[] | null;  // the L2 code-conflict work list (null until loaded)
   codeOpen: CodeOpen | null;                 // the conflict currently open in the merge editor
+  source: SourceConfig | null;               // the configured release source (null = unconfigured)
+  sourceLoaded: boolean;                     // whether the initial GET /source has resolved
+  sourceForm: SourceForm | null;             // non-null while the operator is editing the source
+  sourceErrors: Record<string, string>;      // field → message from the last save attempt
+  compare: VersionCompare | null;            // deployed-vs-available from the last check
   busy: string;                              // a label while a request is in flight
   error: string | null;
 }
-const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, attentionFamily: 'skills', attention: null, codeConflicts: null, codeOpen: null, busy: '', error: null };
+const S: UCState = { status: null, preview: null, apply: null, queue: null, cursor: 0, lastResolved: null, attentionFamily: 'skills', attention: null, codeConflicts: null, codeOpen: null, source: null, sourceLoaded: false, sourceForm: null, sourceErrors: {}, compare: null, busy: '', error: null };
 
 /** The live merge-editor instance (a real object, not serialisable state — kept out of `S`). */
 let codeEditor: CodeMergeEditorHandle | null = null;
@@ -82,7 +98,7 @@ async function callLifecycle(kind: 'check' | 'preview' | 'apply' | 'status', ren
   try {
     const resp = kind === 'status' ? await api.get('/admin/upgrade/status') : await api.post(`/admin/upgrade/${kind}`, {});
     const data = await resp.json() as Record<string, unknown>;
-    if (kind === 'check' || kind === 'status') S.status = data;
+    if (kind === 'check' || kind === 'status') { S.status = data; if (kind === 'check') S.compare = deriveCompare(data); }
     else if (kind === 'preview') S.preview = data;
     else if (kind === 'apply') { S.apply = data; await loadQueue(render); }
   } catch (err) {
@@ -90,6 +106,62 @@ async function callLifecycle(kind: 'check' | 'preview' | 'apply' | 'status', ren
   } finally {
     S.busy = ''; render();
   }
+}
+
+// ── release source config + version compare ───────────────────────────────────────────────────────────
+
+/** Turn a raw check result into the deployed-vs-available comparison the banner renders. */
+function deriveCompare(data: Record<string, unknown>): VersionCompare | null {
+  const status = String(data['status'] ?? '');
+  if (!status || status === 'not_configured') return null;
+  const installed = String(data['installedVersion'] ?? data['floor'] ?? '—');
+  const manifest = data['manifest'] as { version?: string } | undefined;
+  return {
+    installed,
+    available: manifest?.version ?? null,
+    status,
+    ...(typeof data['reason'] === 'string' ? { reason: data['reason'] } : {}),
+  };
+}
+
+/** Load the configured release source (once, on first mount). Never throws — surfaces to the banner. */
+async function loadSource(render: () => void): Promise<void> {
+  try {
+    const resp = await api.get('/admin/upgrade/source');
+    if (resp.ok) {
+      const data = await resp.json() as { source: SourceConfig | null };
+      S.source = data.source;
+    }
+  } catch { /* leave S.source null; the panel offers to configure it */ }
+  finally { S.sourceLoaded = true; render(); }
+}
+
+/** Open the source editor, pre-filled from the current config (or blank defaults for a first-time setup). */
+function editSource(render: () => void): void {
+  const s = S.source;
+  S.sourceForm = {
+    repo: s?.repo ?? '', edition: s?.edition ?? 'community', trustedKeysPem: s?.trustedKeysPem ?? '',
+    apiBase: s?.apiBase ?? '', tokenCredentialId: s?.tokenCredentialId ?? '',
+  };
+  S.sourceErrors = {}; render();
+}
+
+/** Persist the source form. Field errors from the server re-render inline against each input. */
+async function saveSource(render: () => void): Promise<void> {
+  const f = S.sourceForm;
+  if (!f) return;
+  S.busy = 'source'; S.error = null; S.sourceErrors = {}; render();
+  try {
+    const resp = await api.put('/admin/upgrade/source', {
+      repo: f.repo.trim(), edition: f.edition.trim(), trustedKeysPem: f.trustedKeysPem,
+      apiBase: f.apiBase.trim() || null, tokenCredentialId: f.tokenCredentialId.trim() || null,
+    });
+    const data = await resp.json() as { source?: SourceConfig; error?: string; errors?: { field: string; message: string }[] };
+    if (resp.ok && data.source) { S.source = data.source; S.sourceForm = null; }
+    else { S.sourceErrors = Object.fromEntries((data.errors ?? []).map((e) => [e.field, e.message])); if (!data.errors) S.error = data.error ?? 'save failed'; }
+  } catch (err) {
+    S.error = `save source failed: ${(err as Error).message}`;
+  } finally { S.busy = ''; render(); }
 }
 
 // ── review queue ──────────────────────────────────────────────────────────────────────────────────────
@@ -409,6 +481,70 @@ function focusReview(): void {
   el?.focus();
 }
 
+/** The source-config editor form (shown while S.sourceForm is non-null). */
+function renderSourceForm(render: () => void): HTMLElement {
+  const f = S.sourceForm!;
+  const field = (key: keyof SourceForm, label: string, placeholder: string, opts: { area?: boolean; hint?: string } = {}): HTMLElement => {
+    const err = S.sourceErrors[key === 'trustedKeysPem' ? 'trustedKeysPem' : key];
+    const common = {
+      'data-uc-source-field': key, value: f[key], placeholder,
+      oninput: (e: Event) => { f[key] = (e.target as HTMLInputElement | HTMLTextAreaElement).value; },
+    };
+    return h('label', { className: 'uc-source-label' },
+      h('span', {}, label),
+      opts.area ? h('textarea', { ...common, rows: '4', className: 'uc-source-input uc-mono' })
+        : h('input', { ...common, type: 'text', className: 'uc-source-input' }),
+      opts.hint ? h('span', { className: 'uc-hint' }, opts.hint) : null,
+      err ? h('span', { className: 'uc-field-error', 'data-uc-source-error': key }, err) : null,
+    );
+  };
+  return h('div', { className: 'uc-source-form', 'data-uc-source-form': '' },
+    field('repo', 'Release repo (owner/repo)', 'gibyvarghese/geneweave-community'),
+    field('edition', 'Edition', 'community'),
+    field('trustedKeysPem', 'Trusted signing keys (PEM)', '-----BEGIN PUBLIC KEY-----…', { area: true, hint: 'One or more PUBLIC Ed25519 keys. Releases are trusted only if signed by one of these.' }),
+    field('apiBase', 'GitHub API base (optional — GitHub Enterprise)', 'https://ghe.example.com/api/v3'),
+    field('tokenCredentialId', 'Private-repo token credential id (optional)', 'vault credential id', { hint: 'For a private repo. The token itself is stored in the credential vault, never here.' }),
+    h('div', { className: 'uc-source-actions' },
+      h('button', { 'data-uc-source-save': '', disabled: !!S.busy, onclick: () => void saveSource(render) }, S.busy === 'source' ? 'Saving…' : 'Save source'),
+      h('button', { 'data-uc-source-cancel': '', onclick: () => { S.sourceForm = null; S.sourceErrors = {}; render(); } }, 'Cancel'),
+    ),
+  );
+}
+
+/** The source + version-compare header: where releases come from, and deployed-vs-available with an Upgrade CTA. */
+function renderSourceVersion(render: () => void): HTMLElement {
+  const c = S.compare;
+  const updateAvailable = c?.status === 'update_available';
+  // Version line: only meaningful once a check has run (the check returns the deployed version + latest manifest).
+  const versionLine = c
+    ? h('div', { className: 'uc-compare', 'data-uc-compare': c.status },
+        h('span', { className: 'uc-compare-cur' }, `Deployed v${c.installed}`),
+        h('span', { className: 'uc-compare-sep' }, '→'),
+        h('span', { className: 'uc-compare-new' }, c.available ? `Available v${c.available}` : 'No newer release'),
+        updateAvailable
+          ? realmBadge('diverged', 'update available')
+          : c.status === 'up_to_date' ? realmBadge('stale', 'up to date')
+          : c.status === 'rejected' ? realmBadge('diverged', `rejected: ${c.reason ?? 'policy'}`)
+          : realmBadge('stale', c.status),
+        updateAvailable
+          ? h('button', { className: 'uc-upgrade-cta', 'data-uc-upgrade': '', disabled: !!S.busy, onclick: () => void callLifecycle('preview', render) }, `Upgrade to v${c.available} →`)
+          : null,
+      )
+    : h('div', { className: 'uc-hint' }, S.source ? 'Run Check to compare your deployed version against the latest release.' : 'Configure a release source below, then run Check.');
+
+  // Source line: the configured repo (or a first-time prompt), with an Edit affordance.
+  const sourceLine = S.sourceForm
+    ? renderSourceForm(render)
+    : h('div', { className: 'uc-source-summary', 'data-uc-source': '' },
+        S.source
+          ? h('span', { className: 'uc-source-desc' }, `Source: ${S.source.repo} · ${S.source.edition}`, S.source.enabled === false ? realmBadge('diverged', 'paused') : null)
+          : h('span', { className: 'uc-source-desc uc-source-empty', 'data-uc-source-empty': '' }, S.sourceLoaded ? 'No release source configured.' : 'Loading source…'),
+        h('button', { 'data-uc-source-edit': '', onclick: () => editSource(render) }, S.source ? 'Edit source' : 'Configure source'),
+      );
+
+  return h('div', { className: 'uc-header', 'data-uc-header': '' }, versionLine, sourceLine);
+}
+
 /** A lifecycle step button. */
 function stepButton(label: string, kind: 'check' | 'preview' | 'apply', render: () => void): HTMLElement {
   return h('button', {
@@ -449,12 +585,14 @@ export function renderUpgradeCenterView(options: { render: () => void }): HTMLEl
     try { if (S.codeOpen) S.codeOpen = { ...S.codeOpen, merged: codeEditor.getResolved() }; } catch { /* editor gone */ }
     codeEditor.destroy(); codeEditor = null;
   }
-  // First mount: pull the current status + any outstanding review items.
+  // First mount: pull the current status + any outstanding review items + the configured release source.
   if (S.status === null && !S.busy) { void callLifecycle('status', render); void loadQueue(render); }
+  if (!S.sourceLoaded && !S.busy) { void loadSource(render); }
 
   const root = h('div', { className: 'uc-root', 'data-upgrade-center': '' },
     h('h2', { style: 'margin:0 0 4px;' }, 'Upgrade Center'),
     S.error ? h('div', { className: 'uc-error', 'data-uc-error': '' }, S.error) : null,
+    renderSourceVersion(render),
     h('div', { className: 'uc-stepper' },
       stepButton('Check', 'check', render),
       stepButton('Preview', 'preview', render),

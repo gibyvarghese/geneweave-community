@@ -129,7 +129,31 @@ version you've ever *accepted*. A later check is judged against `max(installed, 
 old-but-validly-signed manifest can never talk your instance into a downgrade. A rejected release is recorded
 but never raises the floor.
 
-Enable it with these environment variables (unset = the command reports `not_configured` and does nothing):
+The check answers with your **deployed** version and the release's version, and the Upgrade Center renders them
+side by side — `Deployed v1.4.0 → Available v1.5.0 · update available` — with an **Upgrade** button when a
+newer release is trusted (it walks you into Preview → Apply). When you're current it reads *up to date*; a
+release that failed a gate reads *rejected: <reason>*.
+
+### Configuring the release source
+
+Point your instance at the repo releases come from **from the Upgrade Center** (a platform-admin action) — no
+redeploy or env change needed. The source is a single, platform-wide record (`GET`/`PUT
+/api/admin/upgrade/source`, stored in `upgrade_source_config`):
+
+| field | meaning |
+|---|---|
+| **repo** | the `owner/repo` GitHub releases are published to |
+| **edition** | this instance's edition (a release for another edition is rejected) — `community` or your enterprise edition |
+| **trusted signing keys** | a PEM bundle of the Ed25519 **public** keys you trust; a release is trusted only if signed by one of them |
+| **GitHub API base** | optional — set it for GitHub Enterprise; blank uses public github.com |
+| **private-repo token** | optional — the *credential-id* of a bearer token held in the encrypted vault (for a private enterprise release repo). The token itself is never stored in this record, only referenced |
+
+The keys are public and safe at rest; **no secret is ever stored in this record** — a private-repo token lives
+in the credential vault and is referenced by id, decrypted per check, and never logged. The source is a
+property of the deployment, so it is platform-global (not per-tenant).
+
+For headless or bootstrap deploys the same settings can be supplied as environment variables; the stored config
+takes precedence, and env is the fallback (unset both = the check reports `not_configured`):
 
 | variable | meaning |
 |---|---|
@@ -141,7 +165,7 @@ Enable it with these environment variables (unset = the command reports `not_con
 
 The signing/verification, manifest schema, and release sources are the brand-neutral
 [`@weaveintel/upgrade`](https://www.npmjs.com/package/@weaveintel/upgrade) package; geneWeave supplies the
-persistence, the resilient HTTP, and the admin route.
+persistence, the resilient HTTP, the stored source config, and the admin route.
 
 ## Preflight: is it safe to apply?
 

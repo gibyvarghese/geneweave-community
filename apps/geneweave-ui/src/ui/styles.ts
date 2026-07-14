@@ -782,6 +782,29 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 /* Upgrade Center */
 .uc-root{max-width:1100px}
 .uc-error{background:rgba(216,90,48,.10);color:var(--danger);border:1px solid rgba(216,90,48,.22);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:13px}
+/* Release source + version-compare header */
+.uc-header{border:1px solid var(--bg4);border-radius:10px;padding:12px;margin:10px 0;background:var(--bg2)}
+.uc-compare{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+.uc-compare-cur{font-weight:600}
+.uc-compare-sep{color:var(--fg2)}
+.uc-compare-new{font-weight:700}
+.uc-upgrade-cta{margin-left:auto;padding:8px 16px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-weight:700}
+.uc-upgrade-cta:hover{filter:brightness(1.06)}
+.uc-upgrade-cta[disabled]{opacity:.5;cursor:not-allowed}
+.uc-source-summary{display:flex;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bg4);font-size:13px}
+.uc-source-desc{color:var(--fg2)}
+.uc-source-empty{color:var(--amber)}
+.uc-source-summary button{margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid var(--bg4);background:var(--bg3);color:var(--fg);cursor:pointer;font-size:12px}
+.uc-source-form{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bg4)}
+.uc-source-label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--fg2)}
+.uc-source-input{padding:6px 8px;border-radius:6px;border:1px solid var(--bg4);background:var(--bg1,var(--bg2));color:var(--fg);font-size:13px}
+.uc-source-input:focus{border-color:var(--accent);outline:none}
+.uc-source-input.uc-mono{font-family:var(--mono,monospace);font-size:12px}
+.uc-source-actions{display:flex;gap:8px}
+.uc-source-actions button{padding:6px 14px;border-radius:6px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg);cursor:pointer;font-weight:600;font-size:13px}
+.uc-source-actions button[data-uc-source-save]{border-color:var(--accent);background:var(--accent);color:#fff}
+.uc-source-actions button[disabled]{opacity:.5;cursor:not-allowed}
+.uc-field-error{color:var(--danger);font-size:11px}
 .uc-stepper{display:flex;gap:8px;margin:12px 0}
 .uc-step{padding:8px 16px;border-radius:8px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg);cursor:pointer;font-weight:600}
 .uc-step:hover{background:var(--bg3)}

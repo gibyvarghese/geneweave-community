@@ -2851,6 +2851,23 @@ CREATE TABLE IF NOT EXISTS "upgrade_family_policy" (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_upgrade_family_policy_logical_owner ON upgrade_family_policy(logical_key, COALESCE(owner_tenant_id, ''));
 CREATE INDEX IF NOT EXISTS idx_upgrade_family_policy_deprecated ON upgrade_family_policy(deprecated_at);
 
+-- Upgrade Engine — operator-managed release SOURCE (m177). Platform-global singleton (id='default'). Trusted
+-- keys are PUBLIC; the private-repo token is NOT stored (only a vault credential-id reference).
+CREATE TABLE IF NOT EXISTS "upgrade_source_config" (
+  "id" TEXT PRIMARY KEY,
+  "repo" TEXT NOT NULL,
+  "edition" TEXT NOT NULL DEFAULT 'community',
+  "asset_name" TEXT NOT NULL DEFAULT 'manifest.json',
+  "trusted_keys_pem" TEXT NOT NULL,
+  "api_base" TEXT,
+  "token_credential_id" TEXT,
+  "auto_check" BIGINT NOT NULL DEFAULT 0,
+  "enabled" BIGINT NOT NULL DEFAULT 1,
+  "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "updated_by" TEXT
+);
+
 -- Upgrade Engine — local, PII-free upgrade-lifecycle telemetry (m176). Aggregate operational facts only.
 CREATE TABLE IF NOT EXISTS "upgrade_telemetry" (
   "id" TEXT PRIMARY KEY,
