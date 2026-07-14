@@ -312,6 +312,16 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       const { setFamilyPolicy } = await import('../upgrade-automation.js');
       return setFamilyPolicy(ctx as unknown as SqlClient, 'postgres', family, policy, opts ?? {});
     },
+    /** Upgrade Engine — Source config: load the operator-configured release source (Postgres). */
+    async getUpgradeSourceConfig() {
+      const { loadSourceConfig } = await import('../upgrade-source.js');
+      return loadSourceConfig(ctx as unknown as SqlClient, 'postgres');
+    },
+    /** Upgrade Engine — Source config: upsert the release source (Postgres; validated by the caller). */
+    async setUpgradeSourceConfig(input: import('../upgrade-source.js').UpgradeSourceConfig, opts?: { updatedBy?: string | null }) {
+      const { saveSourceConfig } = await import('../upgrade-source.js');
+      return saveSourceConfig(ctx as unknown as SqlClient, 'postgres', input, opts ?? {});
+    },
     async exportUpgradeResolutionBundle(opts?: { runId?: string }) {
       const { collectResolutionBundle, signResolutionBundle, buildBundleSignerFromEnv, bundleEditionFromEnv } = await import('../upgrade-bundle.js');
       const signingKey = await buildBundleSignerFromEnv();

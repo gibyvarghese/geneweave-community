@@ -24,6 +24,7 @@
     "test:api": "vitest run src/api.test.ts",
     "test:e2e": "npx playwright test --config playwright.config.ts",
     "test:e2e:upgrade": "node scripts/upgrade-center-e2e.mjs",
+    "test:e2e:upgrade-source": "node scripts/upgrade-source-e2e.mjs",
     "sv:eval": "npx tsx src/features/scientific-validation/evals/run-corpus.ts",
     "sv:cost-gate": "npx tsx src/features/scientific-validation/evals/cost-gate.ts"
   },

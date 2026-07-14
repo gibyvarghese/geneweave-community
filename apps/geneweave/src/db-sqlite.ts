@@ -1265,6 +1265,17 @@ export class SQLiteAdapter implements DatabaseAdapter {
     return setFamilyPolicy(sqliteSqlClient(this.d), 'sqlite', family, policy, opts ?? {});
   }
 
+  /** Upgrade Engine — Source config: load the operator-configured release source (or null if unset). */
+  async getUpgradeSourceConfig(): Promise<import('./upgrade-source.js').UpgradeSourceConfigRow | null> {
+    const { loadSourceConfig } = await import('./upgrade-source.js');
+    return loadSourceConfig(sqliteSqlClient(this.d), 'sqlite');
+  }
+  /** Upgrade Engine — Source config: upsert the release source (validated by the caller). */
+  async setUpgradeSourceConfig(input: import('./upgrade-source.js').UpgradeSourceConfig, opts?: { updatedBy?: string | null }): Promise<import('./upgrade-source.js').UpgradeSourceConfigRow> {
+    const { saveSourceConfig } = await import('./upgrade-source.js');
+    return saveSourceConfig(sqliteSqlClient(this.d), 'sqlite', input, opts ?? {});
+  }
+
   // ── Upgrade Engine — Propagation (signed resolution bundles) ───────────────────────────────────────
   /** Export the resolved decisions as a signed bundle. Requires a configured signing key (env/vault). */
   async exportUpgradeResolutionBundle(opts?: { runId?: string }): Promise<import('./upgrade-bundle.js').SignedResolutionBundle | { status: 'not_configured' }> {

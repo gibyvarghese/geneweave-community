@@ -277,6 +277,10 @@ export interface IAdminStore {
   listUpgradeFamilyPolicies?(): Promise<import('../upgrade-automation.js').FamilyPolicyRow[]>;
   /** Upgrade Engine — Automation: set (upsert) a family's auto-adopt policy override. */
   setUpgradeFamilyPolicy?(family: string, policy: 'always' | 'patch_only' | 'never', opts?: { note?: string | null; updatedBy?: string | null }): Promise<import('../upgrade-automation.js').FamilyPolicyRow>;
+  /** Upgrade Engine — Source config: load the operator-configured release source (or null if unset). */
+  getUpgradeSourceConfig?(): Promise<import('../upgrade-source.js').UpgradeSourceConfigRow | null>;
+  /** Upgrade Engine — Source config: upsert the release source (repo + trusted keys + optional GH-Enterprise base + vault token ref). */
+  setUpgradeSourceConfig?(input: import('../upgrade-source.js').UpgradeSourceConfig, opts?: { updatedBy?: string | null }): Promise<import('../upgrade-source.js').UpgradeSourceConfigRow>;
   /** Upgrade Engine — Propagation: export the resolved decisions as a signed bundle (or `{status:'not_configured'}` if no signing key). */
   exportUpgradeResolutionBundle?(opts?: { runId?: string }): Promise<import('../upgrade-bundle.js').SignedResolutionBundle | { status: 'not_configured' }>;
   /** Upgrade Engine — Propagation: verify + apply a signed resolution bundle (or `{status:'not_configured'}` if no trusted keys). */
