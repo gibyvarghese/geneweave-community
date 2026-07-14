@@ -79,7 +79,13 @@ git tools — no geneWeave-specific merge UI required.
    auto-merges what merges cleanly with diff3. **Conflicts are written with standard diff3 markers onto an
    `upgrade/v<target>` git branch** — resolve them in any editor, mergetool, or PR, then push. A file still
    carrying conflict markers keeps the schema layer (L3) blocked until resolved.
-4. `turbo typecheck` gates the merged tree before it's accepted.
+4. Or resolve them **in-app**: the Upgrade Center's **Code** section lists the conflicts; open one and a split
+   `@codemirror/merge` editor shows the incoming release version beside a base-informed pre-merge you edit.
+   *Apply resolution* writes it to the working tree and clears the review item (it refuses any text still
+   carrying conflict markers). The in-app editor sources the release/installed file versions from git — it needs
+   a git work tree (set `GENEWEAVE_SOURCE_ROOT` to it, and `GENEWEAVE_SOURCE_BASE_REF` if the installed tag
+   isn't `v<version>`); on a non-git deploy it points you back at the branch above.
+5. `turbo typecheck` gates the merged tree before it's accepted.
 
 ---
 

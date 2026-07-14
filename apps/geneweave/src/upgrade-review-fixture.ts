@@ -63,3 +63,17 @@ export async function seedReviewFixture(client: SqlClient, dialect: SqlDialect):
 
   return { runId, skillId: String(row['id']), skillKey: key, localValue, upstreamValue, seeded: 4 };
 }
+
+/**
+ * Seed a single L2 code conflict (family='code') for the Code-section E2E — separate from the review-queue
+ * fixture so it doesn't perturb that test's counts. TEST-ONLY (its route is gated on PLAYWRIGHT_E2E).
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @returns the run id + the conflicted path.
+ */
+export async function seedCodeConflictFixture(client: SqlClient, dialect: SqlDialect): Promise<{ runId: string; path: string }> {
+  const runId = await beginUpgradeRun(client, dialect, { mode: 'apply', toVersion: 'e2e-code' });
+  const path = 'src/e2e-conflict.ts';
+  await recordUpgradeDetail(client, dialect, runId, { family: 'code', logicalKey: path, disposition: 'conflict', layer: 'L2', priority: 'P1', note: 'both the operator and the release changed this file' });
+  return { runId, path };
+}

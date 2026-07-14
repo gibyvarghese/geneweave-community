@@ -804,6 +804,15 @@ html[data-force-focus-ring] a:focus,html[data-force-focus-ring] button:focus,htm
 .uc-empty{color:var(--fg2);padding:12px;text-align:center}
 .uc-attention{border:1px solid var(--bg4);border-radius:10px;padding:12px;margin-top:12px}
 .uc-attention select{padding:4px 8px;border-radius:6px;border:1px solid var(--bg4);background:var(--bg2);color:var(--fg)}
+/* Code conflicts (L2 in-app @codemirror/merge) */
+.uc-code{border:1px solid var(--bg4);border-radius:10px;padding:12px;margin-top:12px}
+.uc-merge-panel{margin-top:10px;border:1px solid var(--bg4);border-radius:10px;overflow:hidden}
+.uc-merge-head{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg2);border-bottom:1px solid var(--bg4);flex-wrap:wrap}
+.uc-merge-head strong{font-family:var(--mono,monospace);font-size:12px}
+.uc-merge-label{color:var(--fg2);font-size:11px;margin-right:auto}
+.uc-merge-mount{min-height:320px;max-height:60vh;overflow:auto}
+.uc-merge-mount .cm-editor{height:100%;font-size:12px}
+.uc-merge-mount .cm-mergeView{height:auto}
 /* Tenancy Realm workbench */
 .realm-wb{max-width:1100px}
 .realm-wb .rw-nav{display:flex;gap:6px;margin:0 0 16px;border-bottom:1px solid var(--bg4)}

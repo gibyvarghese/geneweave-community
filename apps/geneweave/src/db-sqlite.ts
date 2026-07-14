@@ -1203,6 +1203,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
     const { seedReviewFixture } = await import('./upgrade-review-fixture.js');
     return seedReviewFixture(sqliteSqlClient(this.d), 'sqlite');
   }
+  /** Upgrade Engine — TEST-ONLY: seed one L2 code conflict for the Code-section E2E. */
+  async seedCodeConflictFixture(): Promise<{ runId: string; path: string }> {
+    const { seedCodeConflictFixture } = await import('./upgrade-review-fixture.js');
+    return seedCodeConflictFixture(sqliteSqlClient(this.d), 'sqlite');
+  }
   /** Upgrade Engine — the "needs attention" report (drifted + version-lagging records) for a family. */
   async upgradeAttention(family: string, tenantId?: string): Promise<import('./upgrade-attention.js').AttentionReport> {
     const { attentionReport } = await import('./upgrade-attention.js');
@@ -1288,6 +1293,21 @@ export class SQLiteAdapter implements DatabaseAdapter {
   async listUpgradeTelemetry(opts?: { event?: string; limit?: number }): Promise<import('./upgrade-telemetry.js').UpgradeTelemetryRow[]> {
     const { listUpgradeTelemetry } = await import('./upgrade-telemetry.js');
     return listUpgradeTelemetry(sqliteSqlClient(this.d), 'sqlite', opts ?? {});
+  }
+  // ── Upgrade Engine — L2 in-app code-conflict merge ─────────────────────────────────────────────────
+  async listCodeConflicts(): Promise<import('./code-merge.js').CodeConflictItem[]> {
+    const { listCodeConflicts } = await import('./code-merge.js');
+    return listCodeConflicts(sqliteSqlClient(this.d), 'sqlite');
+  }
+  async getCodeConflictContent(path: string): Promise<import('./code-merge.js').CodeConflictContent | import('./code-merge.js').CodeConflictUnavailable> {
+    const { getCodeConflictContent } = await import('./code-merge.js');
+    const { defaultSourceRoot } = await import('./code-baseline-store.js');
+    return getCodeConflictContent(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot(), path);
+  }
+  async resolveCodeConflict(detailId: string, path: string, resolvedContent: string, opts?: { resolvedBy?: string | null }): Promise<import('./code-merge.js').ResolveCodeConflictResult> {
+    const { resolveCodeConflict } = await import('./code-merge.js');
+    const { defaultSourceRoot } = await import('./code-baseline-store.js');
+    return resolveCodeConflict(sqliteSqlClient(this.d), 'sqlite', defaultSourceRoot(), detailId, path, resolvedContent, opts ?? {});
   }
 
   /**
