@@ -154,6 +154,7 @@ import { applyM171UpgradeMaintenance } from './m171-upgrade-maintenance.js';
 import { applyM172UpgradeSnapshotRef } from './m172-upgrade-snapshot-ref.js';
 import { applyM173UpgradeDetailUndo } from './m173-upgrade-detail-undo.js';
 import { applyM174UpgradeCodeBaseline } from './m174-upgrade-code-baseline.js';
+import { applyM175UpgradeAutomation } from './m175-upgrade-automation.js';
 import { applyEncryption } from './encryption.js';
 import { createMigrationRunner } from './helpers.js';
 
@@ -316,6 +317,7 @@ const bootstrapRunner = createMigrationRunner([
   { id: 'm172-upgrade-snapshot-ref', description: 'Upgrade Engine: upgrade_runs.snapshot_ref — the path of the pre-upgrade snapshot a SUCCESSFUL apply retains so it can be rolled back on demand (rollback --run <id>). Phase-3 apply already snapshots+restores on an in-flight failure; this lets a run that succeeded but later proves bad still be reversed. Retention is bounded to the newest successful apply. One nullable column, idempotent (ADD COLUMN skipped if present). Postgres via regenerated schema', run: applyM172UpgradeSnapshotRef },
   { id: 'm173-upgrade-detail-undo', description: 'Upgrade Engine: upgrade_details.undo_json — the captured pre-action state (semantic cols + content_hash + origin_hash) that makes a review-queue "adopt incoming" resolution undoable. Undo restores the snapshot verbatim and re-opens the item; keep/defer store nothing. One nullable column, idempotent (ADD COLUMN skipped if present). Postgres via regenerated schema', run: applyM173UpgradeDetailUndo },
   { id: 'm174-upgrade-code-baseline', description: 'Upgrade Engine: upgrade_code_baseline — the stored per-file source baseline (L2 identity) of the installed application code, as a source_baselines manifest (path → SRI) + digest. BASE for the L2 three-way code scan on a non-git install: code status hashes the live tree and compares here; an upgrade compares against the release target. One single-row table, seeded empty, idempotent. Postgres via regenerated schema', run: applyM174UpgradeCodeBaseline },
+  { id: 'm175-upgrade-automation', description: 'Upgrade Engine (Automation + propagation): upgrade_resolution_rules (ordered review-queue automation rules — match an unresolved detail by family/priority/disposition, action keep/adopt/defer/tag, first-match-wins by seq, hard P1 refusal in the engine) + upgrade_family_policy (per-family auto-adopt override always/patch_only/never; empty = the frozen constant still applies) + upgrade_details.resolution_source (NULL interactive / automation / imported). Both new tables are realm-enabled (standard realm + deprecation columns) so rule/policy changes flow through the existing propose→review→promote governance. Two new tables + one nullable column, idempotent. Postgres via regenerated schema', run: applyM175UpgradeAutomation },
 ]);
 
 export function applySQLiteBootstrapMigrations(db: BetterSqlite3.Database): void {

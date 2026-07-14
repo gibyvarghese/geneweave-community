@@ -63,6 +63,8 @@ export interface UpgradeDetailRow {
   resolution: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
+  /** Provenance of the resolution: null = interactive, 'automation' = a rule, 'imported' = a bundle. */
+  resolution_source: string | null;
   /** Captured pre-action state for an undoable 'adopted' resolution (JSON); null for keep/defer. */
   undo_json: string | null;
   created_at: string;
@@ -196,7 +198,7 @@ export async function getUpgradeDetail(client: SqlClient, dialect: SqlDialect, d
  */
 export async function unresolveUpgradeDetail(client: SqlClient, dialect: SqlDialect, detailId: string): Promise<void> {
   await client.query(
-    `UPDATE upgrade_details SET resolution = NULL, resolved_at = NULL, resolved_by = NULL, undo_json = NULL WHERE id = ${ph(dialect, 1)}`,
+    `UPDATE upgrade_details SET resolution = NULL, resolved_at = NULL, resolved_by = NULL, resolution_source = NULL, undo_json = NULL WHERE id = ${ph(dialect, 1)}`,
     [detailId],
   );
 }
@@ -221,6 +223,8 @@ export async function setUpgradeDetailUndo(client: SqlClient, dialect: SqlDialec
  * @param detailId the upgrade_details row id to resolve.
  * @param opts.resolution how it was resolved (e.g. 'kept' | 'adopted' | 'merged' | 'deferred').
  * @param opts.resolvedBy who resolved it (a user id / 'automation'); optional.
+ * @param opts.resolutionSource provenance of the resolution: null/omitted = interactive, 'automation' =
+ *        a resolution rule, 'imported' = a signed resolution bundle. Recorded for audit.
  * @param opts.at ISO timestamp override (tests); defaults to the DB clock.
  * @returns nothing. Side effect: one UPDATE of upgrade_details.
  */
@@ -228,11 +232,14 @@ export async function resolveUpgradeDetail(
   client: SqlClient,
   dialect: SqlDialect,
   detailId: string,
-  opts: { resolution: string; resolvedBy?: string | null; at?: string },
+  opts: { resolution: string; resolvedBy?: string | null; resolutionSource?: string | null; at?: string },
 ): Promise<void> {
+  // Conditional on `resolution IS NULL`: the terminal write is a single-shot claim, so two concurrent resolves
+  // of the same item can't both land (the loser's UPDATE matches no row). Callers pre-check too; this closes the
+  // read-check-write window between them.
   await client.query(
-    `UPDATE upgrade_details SET resolution = ${ph(dialect, 1)}, resolved_by = ${ph(dialect, 2)}, resolved_at = COALESCE(${ph(dialect, 3)}, ${nowExpr(dialect)}) WHERE id = ${ph(dialect, 4)}`,
-    [opts.resolution, opts.resolvedBy ?? null, opts.at ?? null, detailId],
+    `UPDATE upgrade_details SET resolution = ${ph(dialect, 1)}, resolved_by = ${ph(dialect, 2)}, resolution_source = ${ph(dialect, 3)}, resolved_at = COALESCE(${ph(dialect, 4)}, ${nowExpr(dialect)}) WHERE id = ${ph(dialect, 5)} AND resolution IS NULL`,
+    [opts.resolution, opts.resolvedBy ?? null, opts.resolutionSource ?? null, opts.at ?? null, detailId],
   );
 }
 

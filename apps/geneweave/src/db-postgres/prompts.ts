@@ -280,6 +280,53 @@ export function pgPromptStore(ctx: PgCtx): Partial<DatabaseAdapter> {
       return runCodeScan(ctx as unknown as SqlClient, 'postgres', defaultSourceRoot());
     },
 
+    // ── Upgrade Engine — Automation + propagation (Postgres). Mirror of the SQLite adapter methods. ──
+    async applyUpgradeResolutionRules(opts?: { resolvedBy?: string | null; family?: string; priority?: string }) {
+      const c = ctx as unknown as SqlClient;
+      const { applyResolutionRules } = await import('../upgrade-automation.js');
+      const { withUpgradeLock } = await import('../upgrade-lock-store.js');
+      return withUpgradeLock(c, 'postgres', 'resolution-automation', () => applyResolutionRules(c, 'postgres', opts ?? {}),
+        { evaluated: 0, resolved: 0, tagged: 0, skippedP1: 0, unmatched: 0, failed: 0, byAction: {} });
+    },
+    async listUpgradeResolutionRules(opts?: { activeOnly?: boolean }) {
+      const { listResolutionRules } = await import('../upgrade-automation.js');
+      return listResolutionRules(ctx as unknown as SqlClient, 'postgres', opts ?? {});
+    },
+    async createUpgradeResolutionRule(input: import('../upgrade-automation.js').ResolutionRuleInput, opts?: { createdBy?: string | null }) {
+      const { createResolutionRule } = await import('../upgrade-automation.js');
+      return createResolutionRule(ctx as unknown as SqlClient, 'postgres', input, opts ?? {});
+    },
+    async updateUpgradeResolutionRule(id: string, patch: Partial<import('../upgrade-automation.js').ResolutionRuleInput>) {
+      const { updateResolutionRule } = await import('../upgrade-automation.js');
+      return updateResolutionRule(ctx as unknown as SqlClient, 'postgres', id, patch);
+    },
+    async deleteUpgradeResolutionRule(id: string) {
+      const { deleteResolutionRule } = await import('../upgrade-automation.js');
+      return deleteResolutionRule(ctx as unknown as SqlClient, 'postgres', id);
+    },
+    async listUpgradeFamilyPolicies() {
+      const { listFamilyPolicies } = await import('../upgrade-automation.js');
+      return listFamilyPolicies(ctx as unknown as SqlClient, 'postgres');
+    },
+    async setUpgradeFamilyPolicy(family: string, policy: 'always' | 'patch_only' | 'never', opts?: { note?: string | null; updatedBy?: string | null }) {
+      const { setFamilyPolicy } = await import('../upgrade-automation.js');
+      return setFamilyPolicy(ctx as unknown as SqlClient, 'postgres', family, policy, opts ?? {});
+    },
+    async exportUpgradeResolutionBundle(opts?: { runId?: string }) {
+      const { collectResolutionBundle, signResolutionBundle, buildBundleSignerFromEnv, bundleEditionFromEnv } = await import('../upgrade-bundle.js');
+      const signingKey = await buildBundleSignerFromEnv();
+      if (!signingKey) return { status: 'not_configured' as const };
+      const c = ctx as unknown as SqlClient;
+      const body = await collectResolutionBundle(c, 'postgres', { edition: bundleEditionFromEnv(), ...(opts?.runId ? { runId: opts.runId } : {}) });
+      return signResolutionBundle(body, signingKey);
+    },
+    async importUpgradeResolutionBundle(bundle: import('../upgrade-bundle.js').SignedResolutionBundle, opts?: { resolvedBy?: string | null }) {
+      const { importResolutionBundle, buildBundleVerifierFromEnv, bundleEditionFromEnv } = await import('../upgrade-bundle.js');
+      const verifier = buildBundleVerifierFromEnv();
+      if (!verifier) return { status: 'not_configured' as const };
+      return importResolutionBundle(ctx as unknown as SqlClient, 'postgres', bundle, verifier, { edition: bundleEditionFromEnv(), ...(opts ?? {}) });
+    },
+
     /** Upgrade Engine — MANUAL rollback (Postgres). Restores a run's retained pg_dump via psql replay. */
     async runUpgradeRollback(runId: string) {
       const client = ctx as unknown as SqlClient;

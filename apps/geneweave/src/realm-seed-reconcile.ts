@@ -66,6 +66,40 @@ export const AUTO_ADOPT_POLICY: Readonly<Record<string, AutoAdoptPolicy>> = Obje
 /** The adopt policy for a family (defaults to 'patch_only' — adopt untouched changes, keep edits). */
 export const adoptPolicyFor = (family: string): AutoAdoptPolicy => AUTO_ADOPT_POLICY[family] ?? 'patch_only';
 
+/** Valid auto-adopt policy values (guards a stored override before it can steer reconcile). */
+const ADOPT_POLICY_VALUES: ReadonlySet<string> = new Set<AutoAdoptPolicy>(['always', 'patch_only', 'never']);
+
+/**
+ * Load the operator's per-family auto-adopt OVERRIDES from `upgrade_family_policy` (the managed-config table)
+ * as a family → policy map. Only enabled, non-deprecated GLOBAL rows carrying a valid policy value are honored;
+ * everything else falls through to the frozen {@link AUTO_ADOPT_POLICY} constant at reconcile time. Empty on a
+ * fresh install (table has no rows) → behaviour is identical to the constant. Read-only, both dialects.
+ *
+ * NB the query is defensive: if the table doesn't exist yet (a DB older than m175 mid-migration) it returns an
+ * empty map rather than throwing, so reconcile never breaks on a partially-migrated store.
+ * @param client the SqlClient.
+ * @param dialect 'sqlite' | 'postgres'.
+ * @returns the override map (possibly empty).
+ */
+export async function loadFamilyPolicyOverrides(client: SqlClient, dialect: SqlDialect): Promise<Record<string, AutoAdoptPolicy>> {
+  let rows: Array<Record<string, unknown>>;
+  try {
+    ({ rows } = await client.query(
+      `SELECT target_family, policy FROM upgrade_family_policy WHERE realm = 'global' AND enabled = 1 AND deprecated_at IS NULL`,
+      [],
+    ) as { rows: Array<Record<string, unknown>> });
+  } catch {
+    return {};
+  }
+  const out: Record<string, AutoAdoptPolicy> = {};
+  for (const r of rows) {
+    const fam = String(r['target_family'] ?? '');
+    const pol = String(r['policy'] ?? '');
+    if (fam && ADOPT_POLICY_VALUES.has(pol)) out[fam] = pol as AutoAdoptPolicy;
+  }
+  return out;
+}
+
 /** A shipped default: any row-shaped object carrying the family's semantic columns + logical-key source. */
 export type RealmDefault = Record<string, unknown>;
 
@@ -301,12 +335,15 @@ export async function reconcileAllRealmFamilies(
 ): Promise<AllFamiliesReconcileResult> {
   const perFamily: FamilyReconcileResult[] = [];
   const summary: Record<string, number> = {};
+  // The operator's managed per-family overrides (upgrade_family_policy) steer adoption, unless the caller
+  // passed an explicit policyByFamily (tests / edition policy), which wins. Empty map → constant defaults.
+  const policyByFamily = opts.policyByFamily ?? await loadFamilyPolicyOverrides(client, dialect);
   for (const spec of Object.values(REALM_FAMILIES)) {
     const defaults = defaultsByFamily[spec.family];
     if (defaults && defaults.length > 0) {
       const res = await reconcileRealmFamily(client, dialect, spec, defaults, {
         runId: opts.runId, at: opts.at, publishedBy: opts.publishedBy,
-        policy: opts.policyByFamily?.[spec.family],
+        policy: policyByFamily[spec.family],
       });
       perFamily.push(res);
       summary['adopted'] = (summary['adopted'] ?? 0) + res.adopted.length;

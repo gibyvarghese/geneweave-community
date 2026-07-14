@@ -254,4 +254,113 @@ export function registerUpgradeRoutes(router: RouterLike, db: DatabaseAdapter, h
       json(res, 502, { error: 'rollback failed', detail: (err as Error).message });
     }
   });
+
+  // ── Automation: resolution rules + per-family auto-adopt policy ──────────────────────────────────
+  const POLICIES = new Set(['always', 'patch_only', 'never']);
+
+  // Apply the active resolution rules across the queue (P1 never auto-resolved; serialized by the mutex).
+  router.post('/api/admin/upgrade/rules/apply', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.applyUpgradeResolutionRules !== 'function') { json(res, 501, { error: 'automation not supported by this adapter' }); return; }
+    let body: { family?: unknown; priority?: unknown } = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { /* bad body → apply to all */ }
+    const opts: { resolvedBy?: string | null; family?: string; priority?: string } = { resolvedBy: auth!.userId };
+    if (typeof body.family === 'string') opts.family = body.family;
+    if (typeof body.priority === 'string') opts.priority = body.priority;
+    try { json(res, 200, await db.applyUpgradeResolutionRules(opts)); }
+    catch (err) { json(res, 502, { error: 'apply rules failed', detail: (err as Error).message }); }
+  });
+
+  // List resolution rules (?activeOnly=1 = the applied set).
+  router.get('/api/admin/upgrade/rules', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.listUpgradeResolutionRules !== 'function') { json(res, 501, { error: 'automation not supported by this adapter' }); return; }
+    const activeOnly = new URL(req.url ?? '', 'http://localhost').searchParams.get('activeOnly') === '1';
+    json(res, 200, { rules: await db.listUpgradeResolutionRules({ activeOnly }) });
+  });
+
+  // Create a resolution rule: { key, name, action, seq?, matchFamilies?, matchPriorities?, matchDispositions?, tag?, enabled? }.
+  router.post('/api/admin/upgrade/rules', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.createUpgradeResolutionRule !== 'function') { json(res, 501, { error: 'automation not supported by this adapter' }); return; }
+    let body: Record<string, unknown> = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    if (typeof body['key'] !== 'string' || typeof body['name'] !== 'string' || typeof body['action'] !== 'string') { json(res, 400, { error: 'key, name, action are required' }); return; }
+    try {
+      const rule = await db.createUpgradeResolutionRule(body as unknown as import('../../upgrade-automation.js').ResolutionRuleInput, { createdBy: auth!.userId });
+      json(res, 200, rule);
+    } catch (err) { json(res, 400, { error: 'create rule failed', detail: (err as Error).message }); }
+  });
+
+  // Update a resolution rule.
+  router.put('/api/admin/upgrade/rules/:id', async (req, res, params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.updateUpgradeResolutionRule !== 'function') { json(res, 501, { error: 'automation not supported by this adapter' }); return; }
+    let body: Record<string, unknown> = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    try {
+      const rule = await db.updateUpgradeResolutionRule(params['id']!, body as Partial<import('../../upgrade-automation.js').ResolutionRuleInput>);
+      json(res, rule ? 200 : 404, rule ?? { error: 'rule not found' });
+    } catch (err) { json(res, 400, { error: 'update rule failed', detail: (err as Error).message }); }
+  });
+
+  // Delete a resolution rule.
+  router.del('/api/admin/upgrade/rules/:id', async (_req, res, params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.deleteUpgradeResolutionRule !== 'function') { json(res, 501, { error: 'automation not supported by this adapter' }); return; }
+    const ok = await db.deleteUpgradeResolutionRule(params['id']!);
+    json(res, ok ? 200 : 404, { ok });
+  });
+
+  // List per-family auto-adopt policy overrides.
+  router.get('/api/admin/upgrade/family-policy', async (_req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.listUpgradeFamilyPolicies !== 'function') { json(res, 501, { error: 'automation not supported by this adapter' }); return; }
+    json(res, 200, { policies: await db.listUpgradeFamilyPolicies() });
+  });
+
+  // Set a family's auto-adopt policy: PUT /family-policy/:family { policy: 'always'|'patch_only'|'never', note? }.
+  router.put('/api/admin/upgrade/family-policy/:family', async (req, res, params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.setUpgradeFamilyPolicy !== 'function') { json(res, 501, { error: 'automation not supported by this adapter' }); return; }
+    let body: { policy?: unknown; note?: unknown } = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    const policy = String(body.policy ?? '');
+    if (!POLICIES.has(policy)) { json(res, 400, { error: "policy must be 'always', 'patch_only', or 'never'" }); return; }
+    try {
+      const row = await db.setUpgradeFamilyPolicy(params['family']!, policy as 'always' | 'patch_only' | 'never', {
+        updatedBy: auth!.userId, ...(typeof body.note === 'string' ? { note: body.note } : {}),
+      });
+      json(res, 200, row);
+    } catch (err) { json(res, 400, { error: 'set policy failed', detail: (err as Error).message }); }
+  });
+
+  // ── Propagation: signed resolution bundles ────────────────────────────────────────────────────────
+  // Export the resolved decisions as a signed bundle (optional { runId }).
+  router.post('/api/admin/upgrade/resolutions/export', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.exportUpgradeResolutionBundle !== 'function') { json(res, 501, { error: 'propagation not supported by this adapter' }); return; }
+    let body: { runId?: unknown } = {};
+    try { const raw = await readBody(req); if (raw) body = JSON.parse(raw); } catch { /* export all */ }
+    try {
+      const out = await db.exportUpgradeResolutionBundle(typeof body.runId === 'string' ? { runId: body.runId } : {});
+      if ('status' in out) { json(res, 200, { status: 'not_configured', message: 'Set GENEWEAVE_UPGRADE_SIGNING_KEY to enable resolution-bundle export.' }); return; }
+      json(res, 200, out);
+    } catch (err) { json(res, 502, { error: 'export failed', detail: (err as Error).message }); }
+  });
+
+  // Verify + apply a signed resolution bundle (body = the bundle).
+  router.post('/api/admin/upgrade/resolutions/import', async (req, res, _params, auth) => {
+    if (!requirePlatformAdmin(res, auth)) return;
+    if (typeof db.importUpgradeResolutionBundle !== 'function') { json(res, 501, { error: 'propagation not supported by this adapter' }); return; }
+    let bundle: import('../../upgrade-bundle.js').SignedResolutionBundle;
+    try { bundle = JSON.parse((await readBody(req)) || '{}'); } catch { json(res, 400, { error: 'Invalid JSON' }); return; }
+    if (!bundle || typeof bundle !== 'object' || !('signature' in bundle) || !Array.isArray((bundle as { entries?: unknown }).entries)) { json(res, 400, { error: 'not a signed resolution bundle' }); return; }
+    try {
+      const out = await db.importUpgradeResolutionBundle(bundle, { resolvedBy: auth!.userId });
+      if ('status' in out) { json(res, 200, { status: 'not_configured', message: 'Set GENEWEAVE_UPGRADE_BUNDLE_TRUSTED_KEYS to enable resolution-bundle import.' }); return; }
+      // A rejected (bad/untrusted signature or edition mismatch) import is a 200 with the reason — it applied nothing.
+      json(res, 200, out);
+    } catch (err) { json(res, 502, { error: 'import failed', detail: (err as Error).message }); }
+  });
 }

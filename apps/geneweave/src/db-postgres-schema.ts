@@ -2734,11 +2734,14 @@ CREATE TABLE IF NOT EXISTS "upgrade_details" (
   "resolved_at" TEXT,
   "resolved_by" TEXT,
   "undo_json" TEXT,
+  "resolution_source" TEXT,
   "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
   PRIMARY KEY ("id")
 );
 -- m173: captured pre-action state for an undoable review resolution (idempotent for existing DBs).
 ALTER TABLE "upgrade_details" ADD COLUMN IF NOT EXISTS "undo_json" TEXT;
+-- m175: provenance of a resolution (NULL interactive / 'automation' / 'imported').
+ALTER TABLE "upgrade_details" ADD COLUMN IF NOT EXISTS "resolution_source" TEXT;
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_run ON upgrade_details(run_id);
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_family_key ON upgrade_details(family, logical_key);
 CREATE INDEX IF NOT EXISTS ix_upgrade_details_priority ON upgrade_details(priority);
@@ -2790,6 +2793,63 @@ CREATE TABLE IF NOT EXISTS "upgrade_maintenance" (
   "since" TEXT
 );
 INSERT INTO "upgrade_maintenance" ("id", "active", "reason", "since") VALUES ('singleton', 0, NULL, NULL) ON CONFLICT ("id") DO NOTHING;
+
+-- Upgrade Engine — review-queue automation (m175). Ordered rules matched against unresolved upgrade_details
+-- by family/priority/disposition; realm-enabled so rule changes flow through propose→review→promote.
+CREATE TABLE IF NOT EXISTS "upgrade_resolution_rules" (
+  "id" TEXT PRIMARY KEY,
+  "key" TEXT NOT NULL,
+  "name" TEXT NOT NULL,
+  "description" TEXT,
+  "seq" BIGINT NOT NULL DEFAULT 100,
+  "match_families" TEXT,
+  "match_priorities" TEXT,
+  "match_dispositions" TEXT,
+  "action" TEXT NOT NULL DEFAULT 'tag',
+  "tag" TEXT,
+  "enabled" BIGINT NOT NULL DEFAULT 1,
+  "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_upgrade_resolution_rules_logical_owner ON upgrade_resolution_rules(logical_key, COALESCE(owner_tenant_id, ''));
+CREATE INDEX IF NOT EXISTS idx_upgrade_resolution_rules_seq ON upgrade_resolution_rules(enabled, seq);
+CREATE INDEX IF NOT EXISTS idx_upgrade_resolution_rules_deprecated ON upgrade_resolution_rules(deprecated_at);
+
+-- Upgrade Engine — per-family auto-adopt policy override (m175). One row per realm family; empty = the frozen
+-- AUTO_ADOPT_POLICY constant still applies. Realm-enabled (governed like any family).
+CREATE TABLE IF NOT EXISTS "upgrade_family_policy" (
+  "id" TEXT PRIMARY KEY,
+  "target_family" TEXT NOT NULL,
+  "policy" TEXT NOT NULL DEFAULT 'patch_only',
+  "note" TEXT,
+  "enabled" BIGINT NOT NULL DEFAULT 1,
+  "created_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "updated_at" TEXT NOT NULL DEFAULT to_char((now() at time zone 'utc'), 'YYYY-MM-DD HH24:MI:SS'),
+  "realm" TEXT NOT NULL DEFAULT 'global',
+  "owner_tenant_id" TEXT,
+  "logical_key" TEXT,
+  "origin_id" TEXT,
+  "origin_hash" TEXT,
+  "content_hash" TEXT NOT NULL DEFAULT '',
+  "track_mode" TEXT NOT NULL DEFAULT 'pin',
+  "share_mode" TEXT NOT NULL DEFAULT 'private',
+  "deprecated_at" TEXT,
+  "deprecation_note" TEXT,
+  "superseded_by_id" TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_upgrade_family_policy_logical_owner ON upgrade_family_policy(logical_key, COALESCE(owner_tenant_id, ''));
+CREATE INDEX IF NOT EXISTS idx_upgrade_family_policy_deprecated ON upgrade_family_policy(deprecated_at);
 
 CREATE TABLE IF NOT EXISTS "recipe_configs" (
   "id" TEXT,
