@@ -23,7 +23,7 @@ import { createModelTextGenerator } from './note-ai-sql.js';
 import { createModelImageGenerator, createModelVisionVerifier } from './note-creative-sql.js';
 import type { VoiceEngine } from './voice-engine.js';
 import { DashboardService } from './dashboard.js';
-import { SPA_HTML, STYLES_CSP_HASH, SCRIPT_CSP_HASHES } from './ui-server.js';
+import { STYLES_CSP_HASH, SCRIPT_CSP_HASHES, renderSpaHtml } from './ui-server.js';
 import { getDocsHTML } from './docs-html.js';
 import { authenticateRequest, verifyCSRF } from './auth.js';
 import { createNotificationsHub } from './notifications-wiring.js';
@@ -125,7 +125,6 @@ export function createGeneWeaveServer(config: ServerConfig): Server {
   const { db, chatEngine, voiceEngine, jwtSecret, corsOrigin, providers, publicBaseUrl, gatewayConfig, workflowEngine, triggerDispatcher } = config;
   const dashboard = new DashboardService(db);
   const router = new Router();
-  const uiHtml = SPA_HTML;
   const docsHtml = getDocsHTML();
 
   // Idempotency store for write endpoints. Keyed by `userId:idempotency-key`.
@@ -732,9 +731,32 @@ export function createGeneWeaveServer(config: ServerConfig): Server {
       return;
     }
 
-    // Serve UI for all non-API routes (SPA)
+    // Serve UI for all non-API routes (SPA). A fresh per-response style nonce is added to `style-src` and
+    // injected into the shell, so a runtime-mounted editor (the in-app @codemirror/merge code-conflict view)
+    // can tag its injected stylesheets and have them accepted under the strict, hash-based CSP — without ever
+    // relaxing to 'unsafe-inline'. This OVERRIDES the generic CSP set in the middleware above for this response.
     if (method === 'GET') {
-      html(res, 200, uiHtml);
+      const styleNonce = randomBytes(16).toString('base64');
+      res.setHeader(
+        'Content-Security-Policy',
+        [
+          "default-src 'self'",
+          `script-src 'self' ${SCRIPT_CSP_HASHES.join(' ')} https://cdn.sheetjs.com`,
+          // <style> ELEMENTS stay strict — only the app's own hashed block + editor stylesheets carrying this
+          // response's nonce are allowed (no 'unsafe-inline' for style elements).
+          `style-src 'self' ${STYLES_CSP_HASH} 'nonce-${styleNonce}' https://fonts.googleapis.com`,
+          // Inline style ATTRIBUTES (element.style=…) are a separate, much lower-risk vector — they can only set
+          // properties on one element, carry no selectors, and network fetches stay gated by img-src/connect-src.
+          // CodeMirror (the in-app merge editor) sets many at runtime for positioning/gutters; a nonce/hash can't
+          // cover attributes, so allow them here while <style> BLOCK injection remains blocked above.
+          "style-src-attr 'unsafe-inline'",
+          "font-src 'self' https://fonts.gstatic.com",
+          "img-src 'self' data: https:",
+          "connect-src 'self' ws: wss:",
+          "frame-ancestors 'none'",
+        ].join('; '),
+      );
+      html(res, 200, renderSpaHtml(styleNonce));
       return;
     }
 

@@ -36,6 +36,9 @@ export const SCRIPT_CSP_HASHES = [
   `'sha256-${sha256b64(_moduleScriptContent)}'`,
 ];
 
+/** Placeholder the per-request style nonce is substituted into (see renderSpaHtml). */
+const CSP_NONCE_PLACEHOLDER = '__CSP_STYLE_NONCE__';
+
 /** Pre-built HTML shell — static after startup, served for every SPA request. */
 export const SPA_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -43,6 +46,10 @@ export const SPA_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>geneWeave</title>
+  <!-- Per-request style nonce: the app's own <style> is CSP-allowlisted by its sha256 hash; this nonce lets a
+       runtime-mounted editor (the in-app @codemirror/merge code-conflict view) tag its injected stylesheets so
+       the strict, hash-based style-src accepts them WITHOUT weakening to 'unsafe-inline'. -->
+  <meta name="csp-style-nonce" content="${CSP_NONCE_PLACEHOLDER}">
   <style>${STYLES}</style>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
 </head>
@@ -52,6 +59,18 @@ export const SPA_HTML = `<!DOCTYPE html>
 <script type="module">${_moduleScriptContent}</script>
 </body>
 </html>`;
+
+/**
+ * Render the SPA shell with a per-request style nonce substituted in. The caller adds the SAME nonce to the
+ * response's `style-src` CSP directive (`'nonce-<value>'`), so a runtime editor's injected stylesheets — tagged
+ * with this nonce via `EditorView.cspNonce` — are accepted while the app's own hashed `<style>` still is too.
+ * @param styleNonce a fresh, unguessable per-response nonce (base64). Non-alphanumeric+/= chars are stripped so
+ *   it can't break out of the CSP directive or the HTML attribute.
+ * @returns the SPA HTML with the nonce injected.
+ */
+export function renderSpaHtml(styleNonce: string): string {
+  return SPA_HTML.replace(CSP_NONCE_PLACEHOLDER, styleNonce.replace(/[^A-Za-z0-9+/=]/g, ''));
+}
 
 /** @deprecated use SPA_HTML directly */
 export function getHTML(): string {

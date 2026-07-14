@@ -273,9 +273,18 @@ async function loadCodeConflicts(render: () => void): Promise<void> {
   S.busy = 'code'; S.error = null; render();
   try {
     const resp = await api.get('/admin/upgrade/code/conflicts');
-    S.codeConflicts = (await resp.json() as { conflicts: CodeConflictItem[] }).conflicts;
+    if (!resp.ok) {
+      // A non-2xx (e.g. 429 rate-limited, 501 unsupported) returns an error body, not { conflicts } — surface it
+      // and default to an empty list so the section renders instead of throwing on `.length`.
+      S.error = `load code conflicts failed (${resp.status})`;
+      S.codeConflicts = S.codeConflicts ?? [];
+    } else {
+      const data = await resp.json() as { conflicts?: CodeConflictItem[] };
+      S.codeConflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+    }
   } catch (err) {
     S.error = `load code conflicts failed: ${(err as Error).message}`;
+    S.codeConflicts = S.codeConflicts ?? [];
   } finally {
     S.busy = ''; render();
   }
@@ -363,7 +372,7 @@ function renderCode(render: () => void): HTMLElement {
       h('button', { 'data-uc-code-scan': '', disabled: !!S.busy, onclick: () => void scanRelease(render) }, S.busy === 'code-scan' ? 'Scanning…' : 'Scan release'),
       list ? h('span', { className: 'uc-remaining' }, `${list.length} file${list.length === 1 ? '' : 's'}`) : null,
     ),
-    ...(list === null
+    ...(!list
       ? [h('div', { className: 'uc-hint' }, 'Load the code files an upgrade left conflicting for a merge decision.')]
       : list.length === 0
         ? [h('div', { className: 'uc-empty' }, 'No code conflicts.')]
