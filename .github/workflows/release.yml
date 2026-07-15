@@ -1,0 +1,62 @@
+# Release — cut a signed geneWeave release the Upgrade Center can discover and trust.
+#
+# On a `v<x.y.z>` tag push, this builds the app, assembles + Ed25519-signs a `manifest.json` (whose
+# `layers.code.fileManifestDigest` is computed by the SAME `fetchTreeBaseline` every instance re-verifies with),
+# and attaches it to a GitHub Release. A running instance then discovers that release, verifies the signature
+# against a trusted key, and gates the code upgrade on the digest matching the tag's source tree.
+#
+# ONE-TIME OWNER SETUP (cannot be automated — the private signing key is an offline trust root):
+#   1. Generate the key offline:   cd apps/geneweave && node scripts/gen-release-key.mjs
+#   2. Store the PRIVATE PEM as the Actions secret:   gh secret set GENEWEAVE_RELEASE_SIGNING_KEY
+#   3. Commit the PUBLIC PEM:       release-keys/geneweave-community.pub.pem   (see release-keys/README.md)
+#   Until (2)+(3) are done the publisher fails closed ("no committed public key" / signature mismatch), so no
+#   release ships that instances couldn't trust.
+#
+# To cut a release: bump apps/geneweave/package.json (product version), then `git tag v<x.y.z> && git push --tags`.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Least privilege: read the repo (checkout + the publisher's own tarball fetch) and write the GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (pulls @weaveintel/* from npm)
+        run: npm install --no-audit --no-fund
+
+      - name: Build
+        run: npx turbo build
+
+      - name: Assemble + sign the release manifest
+        working-directory: apps/geneweave
+        run: node scripts/build-release-manifest.mjs --out manifest.json
+        env:
+          GENEWEAVE_RELEASE_SIGNING_KEY: ${{ secrets.GENEWEAVE_RELEASE_SIGNING_KEY }}
+          GENEWEAVE_UPGRADE_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GENEWEAVE_EDITION: community
+          GITHUB_TOKEN: ${{ github.token }} # the publisher fetches the tag's tarball to compute the digest
+
+      - name: Publish the GitHub Release with the signed manifest
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: apps/geneweave/manifest.json
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

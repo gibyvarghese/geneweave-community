@@ -56,6 +56,12 @@ A release is a **`v<x.y.z>` git tag** with a **GitHub Release** carrying an **Ed
 running instance trusts it only if it is signed by a key in its trust set, is for its edition, isn't expired, and
 isn't a downgrade.
 
+Cutting a release is automated: push a `v<x.y.z>` tag and the **Release workflow**
+([`.github/workflows/release.yml`](.github/workflows/release.yml)) builds, signs, and publishes the manifest via
+`apps/geneweave/scripts/build-release-manifest.mjs`. The manifest's `fileManifestDigest` is computed by the same
+code every instance re-verifies with, so it always matches the tag's source tree. The signing key's **public**
+half is published in [`release-keys/`](release-keys/) for adopters to trust (set `GENEWEAVE_UPGRADE_TRUSTED_KEYS`).
+
 - **Cutting a release:** [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) → *Publisher runbook — cutting a release*.
 - **Consuming a release:** [`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md) (and the **Upgrade Center** admin UI:
   configure the source, Check, review, merge code, one-click Upgrade).

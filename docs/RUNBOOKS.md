@@ -43,21 +43,47 @@ keeps the head window, every live-referenced Base, and every tenant-pinned versi
 
 ## Publisher runbook — cutting a release
 
-A release is a signed `manifest.json` attached to a GitHub Release. The client trusts it only if it is signed
-by a key in the client's trust set.
+A release is a **`v<x.y.z>` git tag** plus a **GitHub Release** carrying a signed `manifest.json`. Cutting one is
+automated by the **Release workflow** ([`.github/workflows/release.yml`](../.github/workflows/release.yml)); an
+instance trusts the result only if the manifest is signed by a key in its trust set.
 
-1. **Generate an Ed25519 signing key** (offline, kept secret). Distribute only the **public** key to instances
-   (as `GENEWEAVE_UPGRADE_TRUSTED_KEYS`). The private key never leaves the publisher.
-2. **Build + lint the manifest** (via `@weaveintel/upgrade`'s `buildManifest` / `lintManifest`): pin
-   `@weaveintel/*` targets + `requires` ranges, declare each schema batch (`batchId`, `contentHash`,
-   `dependsOn`, `provides`) and each content default (`family`, `logicalKey`, `remoteHash`, `releaseNote`).
-   Lint rejects a content change with no release note, a batch id that doesn't exist, or DDL declared outside a
-   migration.
-3. **Sign** the manifest with the private key and **attach** it to the GitHub Release as `manifest.json`.
+### One-time setup — the signing key (offline trust root)
+
+```bash
+cd apps/geneweave
+node scripts/gen-release-key.mjs        # prints the PRIVATE PEM (→ secret) + PUBLIC PEM (→ commit) + fingerprint
+```
+
+- Store the **private** PEM as the `GENEWEAVE_RELEASE_SIGNING_KEY` Actions secret (it never leaves your machine
+  except into the secret store): `gh secret set GENEWEAVE_RELEASE_SIGNING_KEY`.
+- Commit the **public** PEM as `release-keys/geneweave-community.pub.pem` (see
+  [`release-keys/README.md`](../release-keys/README.md)). The workflow **self-verifies** each manifest against
+  this key and fails closed if the secret doesn't match — so a wrong/rotated key can never ship a release.
+- Tell instances to trust it: set `GENEWEAVE_UPGRADE_TRUSTED_KEYS` (or the source config's `trustedKeysPem`) to
+  that public PEM.
+
+### Cutting a release
+
+1. Bump the product version in `apps/geneweave/package.json` (see [`../VERSIONING.md`](../VERSIONING.md)); update
+   [`../CHANGELOG.md`](../CHANGELOG.md).
+2. Tag and push: `git tag v<x.y.z> && git push origin v<x.y.z>`.
+3. The Release workflow builds, then runs `scripts/build-release-manifest.mjs`, which:
+   - computes `layers.code.fileManifestDigest` via `fetchTreeBaseline` — the **same** function every instance
+     re-verifies with, so the digest is guaranteed to match the tag's source tree;
+   - assembles the manifest body (`version`, fabric `codename`, `edition`, `layers.code.repoTag = the tag`),
+     **lints** it (`@weaveintel/upgrade` `lintManifest`), **signs** it with the secret, and **self-verifies**
+     against the committed public key;
+   - the workflow attaches `manifest.json` to the GitHub Release.
 4. **Anti-rollback is automatic:** clients compute a floor from the max accepted version, so a replayed older
    (but validly signed) manifest is rejected as a downgrade.
-5. **Set `expiresAt`** on the manifest to bound freeze attacks (a stale mirror serving an old manifest forever
-   is rejected once expired).
+
+Declaring schema (`layers.schema`) and content (`layers.content`) entries is supported by the manifest and the
+publisher accepts them, but the L3/L4 reconcile also runs at *apply* time from the fetched code + live DB, so a
+code-layer manifest already drives a correct upgrade. To bound freeze attacks, an `expiresAt` may be set on the
+manifest (a stale mirror serving an old manifest forever is rejected once expired).
+
+To run the publisher locally against a tag (dry run): `GENEWEAVE_RELEASE_SIGNING_KEY=… GENEWEAVE_UPGRADE_REPO=owner/repo
+RELEASE_TAG=v1.0.0 npm run release:manifest -- --out /tmp/manifest.json` (from `apps/geneweave`).
 
 **Propagating triage across a fleet.** Resolve the queue once on staging, then
 `POST /api/admin/upgrade/resolutions/export` to emit a **signed** resolution bundle;
