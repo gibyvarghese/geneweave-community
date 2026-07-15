@@ -18,6 +18,7 @@ import { loadingPlaceholder } from './skeleton.js';
 import { state } from './state.js';
 import { wovenMarkSvg, wordmarkHtml } from './notes-brand.js';
 import { getAdminSchema, adminSaveRow, adminDeleteRow, clearAdminEditorState } from './admin-ui.js';
+import { loadAdmin } from './api.js';
 import { renderBuilderFields, renderBuilderActionBar, jsonFieldsInvalid, type FieldSchema } from './builder-editor.js';
 
 export interface BuilderOptions { loadAdmin: () => Promise<void> }
@@ -90,8 +91,9 @@ function openRow(row: Row, render: () => void): void {
 function selectTab(tab: string, render: () => void): void {
   if (state.adminTab === tab) return;
   state.adminTab = tab; _toast = false;
-  openFirst(render);
+  // Under lazy loading the newly-selected builder tab isn't fetched yet — load it, then open its first row.
   render();
+  void loadAdmin(tab).then(() => { openFirst(render); render(); });
 }
 function newRecord(render: () => void): void {
   const schema = getAdminSchema(state.adminTab as string);

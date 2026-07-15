@@ -145,3 +145,36 @@ test('@upgrade-critical Upgrade Center — the L2 code-conflict section lists a 
   await expect(uc.locator('[data-uc-merge-git]')).toBeVisible({ timeout: 8000 });
   await expect(uc.locator('[data-uc-merge-git]')).toContainText('git branch');
 });
+
+test('@upgrade-critical Upgrade Center — a code review-queue row offers Merge, not Adopt (adopt is guarded, not a raw 409)', async ({ page }) => {
+  await login(page, ADMIN);
+  const H = { 'x-csrf-token': await csrf(page), 'content-type': 'application/json' };
+  const origin0 = new URL('/', page.url()).origin;
+  await page.request.post(`${origin0}/api/admin/upgrade/_test/promote-admin`, { headers: H, data: {} });
+  // A code conflict (family='code', layer='L2') lands in the SAME review queue as content — but code is resolved
+  // by merging (Code section), and adopting it is a deploy the server refuses (409). The row must reflect that.
+  await page.request.post(`${origin0}/api/admin/upgrade/_test/seed-code-conflict`, { headers: H, data: {} });
+
+  await openUpgradeCenter(page);
+  const uc = ucRoot(page);
+
+  // The review queue auto-loads on mount; find the code row (it shows the file path as its logical key).
+  const codeRow = uc.locator('.uc-review-row', { hasText: 'src/e2e-conflict.ts' }).first();
+  await expect(codeRow).toBeVisible({ timeout: 8000 });
+  // It offers "Open merge" and Keep/Defer — but NOT "Adopt" (which can't apply to code).
+  await expect(codeRow.locator('[data-uc-action="merge"]')).toBeVisible();
+  await expect(codeRow.locator('[data-uc-action="keep"]')).toBeVisible();
+  await expect(codeRow.locator('[data-uc-action="defer"]')).toBeVisible();
+  await expect(codeRow.locator('[data-uc-action="adopt"]')).toHaveCount(0);
+
+  // Selecting the code row and pressing the adopt key (2) surfaces a plain-language pointer, not a raw 409.
+  await codeRow.click();
+  await uc.locator('[data-uc-review]').press('2');
+  await expect(uc.locator('[data-uc-error]')).toContainText('Code conflicts are resolved in the Code section', { timeout: 4000 });
+  // …and the view is still alive (no crash): the code row is still there.
+  await expect(codeRow).toBeVisible();
+
+  // "Open merge" from the review row opens the merge panel (git-required in this no-release harness).
+  await codeRow.locator('[data-uc-action="merge"]').click();
+  await expect(uc.locator('[data-uc-merge-git], [data-uc-merge]')).toBeVisible({ timeout: 8000 });
+});

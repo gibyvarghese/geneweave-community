@@ -440,37 +440,58 @@ export async function loadDashboardData() {
 }
 
 // Admin
-export async function loadAdmin() {
-  try {
-    const adminSchema = getAdminSchema();
-    const keys = Object.keys(adminSchema);
-    const promises = keys.map((k: string) => {
-      const s = (adminSchema as any)[k];
-      const path = String(s.apiPath || '').replace(/^\/+/, '').replace(/^api\//, '');
-      return api
-        .get('/' + path)
-        .then((r: any) => r.json())
-        .catch(() => {
-          const d: any = {};
-          d[s.listKey] = [];
-          return d;
-        });
-    });
-    const results = await Promise.all(promises);
-    const data: any = {};
-    keys.forEach((k: string, i: number) => {
-      const s = (adminSchema as any)[k];
-      data[k] = results[i][s.listKey] || [];
-    });
-    state.adminData = data;
-    if (!state.adminTab || !(state.adminTab in state.adminData)) {
-      state.adminTab = keys[0] || 'prompts';
+// Tabs whose data is currently being fetched — so rapid re-clicks / repeated renders don't fire duplicate requests.
+const _adminTabsInFlight = new Set<string>();
+
+/**
+ * Load admin-tab data LAZILY — only the tab(s) actually being viewed, not all of them.
+ *
+ * The admin dashboard has one API endpoint per tab (~80 of them). Fetching them ALL on every admin open, tab
+ * click, and post-save refresh (the previous behaviour) fired ~80 parallel requests per interaction and quickly
+ * tripped the per-IP edge rate limit (HTTP 429). Each tab's rows are independent, so we fetch only the requested
+ * tab(s) and cache them in `state.adminData[tab]`; the other tabs fill in as they're visited. Every navigation
+ * caller already sets `state.adminTab` before calling this, so a tab switch loads exactly that one tab.
+ *
+ * @param tabs which tab(s) to load: omit for the ACTIVE tab (`state.adminTab`, or the first schema key when unset);
+ *   a single tab key; or an array of keys (the prompt wizard needs a few related tabs — frameworks/strategies/…).
+ * @returns resolves once the requested tab(s) are fetched (a failed fetch falls back to an empty list, never throws).
+ * @sideEffect one GET per requested tab; writes `state.adminData[tab]`; triggers one re-render at the end.
+ */
+export async function loadAdmin(tabs?: string | string[]) {
+  const adminSchema = getAdminSchema();
+  const keys = Object.keys(adminSchema);
+  if (keys.length === 0) return;
+  // Keep the old "default to the first tab on a fresh open" behaviour so nothing lands on an unset tab.
+  const active = state.adminTab && state.adminTab in adminSchema ? state.adminTab : keys[0];
+  if (!state.adminTab || !(state.adminTab in adminSchema)) state.adminTab = active;
+  // Skip tabs backed by a `customView` (routing-simulator, upgrade-center, realm-workbench, …): they load their
+  // OWN data and drive their OWN renders, so fetching their placeholder apiPath is redundant and — worse — the
+  // extra re-render here races their imperative/async mount and can duplicate their DOM. They need nothing from us.
+  const targets = (tabs == null ? [active] : Array.isArray(tabs) ? tabs : [tabs])
+    .filter((t): t is string => !!t && t in adminSchema && !(adminSchema as any)[t].customView);
+  if (targets.length === 0) return;
+  if (!state.adminData) state.adminData = {} as Record<string, any[]>;
+
+  await Promise.all(targets.map(async (tab: string) => {
+    if (_adminTabsInFlight.has(tab)) return; // a load for this tab is already running
+    _adminTabsInFlight.add(tab);
+    const s = (adminSchema as any)[tab];
+    const path = String(s.apiPath || '').replace(/^\/+/, '').replace(/^api\//, '');
+    try {
+      const r: any = await api.get('/' + path);
+      const body: any = await r.json();
+      (state.adminData as Record<string, any[]>)[tab] = body[s.listKey] || [];
+    } catch {
+      (state.adminData as Record<string, any[]>)[tab] = []; // per-tab fallback: render an empty table, never crash
+    } finally {
+      _adminTabsInFlight.delete(tab);
     }
-    triggerRender();
-  } catch (e) {
-    console.error('Failed to load admin data', e);
-  }
+  }));
+  triggerRender();
 }
+
+/** The admin tabs the prompt wizard reads together (its framework/strategy/contract/fragment pickers + prompts). */
+export const PROMPT_WIZARD_TABS = ['prompts', 'prompt-frameworks', 'prompt-strategies', 'prompt-contracts', 'prompt-fragments'];
 
 // Connectors
 export async function loadConnectors() {
