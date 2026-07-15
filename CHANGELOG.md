@@ -1,7 +1,8 @@
 # Changelog
 
 All notable changes to the geneWeave application are documented here. The project follows
-[Semantic Versioning](https://semver.org/). Releases are cut as signed manifests (see
+[Semantic Versioning](https://semver.org/) with a fabric codename on majors — see [`VERSIONING.md`](VERSIONING.md).
+Both editions (community + private) share the same version line. Releases are cut as signed manifests (see
 [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) → *Publisher runbook*), and the running engine verifies, applies, and
 reconciles them (see [`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md)).
 

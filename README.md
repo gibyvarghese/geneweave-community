@@ -306,6 +306,10 @@ local and opt-out. See [`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md) for th
 [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) for operator/publisher/private-edition procedures, and
 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for the update-security threat model.
 
+geneWeave follows **Semantic Versioning** with a fabric codename on majors, and both editions share the same
+version line — see [`VERSIONING.md`](VERSIONING.md). Those Major/Minor/Patch meanings are exactly what the Upgrade
+Center's bump badge and anti-rollback use.
+
 ---
 
 ## Configuration reference
