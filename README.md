@@ -389,7 +389,12 @@ geneWeave is versioned as **one product** with **Semantic Versioning** and a fab
 both editions (community + private) ship the **same version line** — currently **1.0.0 "Aertex"**. A CI guard
 (the **Product version** workflow) keeps the version, its codename, [`VERSIONING.md`](VERSIONING.md), and
 [`CHANGELOG.md`](CHANGELOG.md) consistent. The `@weaveintel/*` framework libraries version independently on their
-own track. Full details: [`VERSIONING.md`](VERSIONING.md).
+own track.
+
+**Releases are signed.** Pushing a `v<x.y.z>` tag runs the **Release workflow**, which builds and attaches an
+Ed25519-signed `manifest.json` to a GitHub Release; the in-app Upgrade Center discovers it, verifies the
+signature against a trusted key ([`release-keys/`](release-keys/)), and upgrades safely. Full details:
+[`VERSIONING.md`](VERSIONING.md) and [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md).
 
 ## License
 
