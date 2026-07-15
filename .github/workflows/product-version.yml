@@ -1,0 +1,36 @@
+# Product version guard — enforces the shared geneWeave product version line (see VERSIONING.md).
+#
+# Runs scripts/check-product-version.mjs: the product version (apps/geneweave/package.json) must be
+# valid SemVer, its major must map to the correct fabric codename, and VERSIONING.md's "Current
+# release" + the newest CHANGELOG.md entry must agree with it. This community repo self-validates only
+# — it never holds a private-repo credential. (The private/enterprise repo additionally cross-checks
+# that both editions carry the same version.)
+#
+# Zero-dependency: the guard uses only Node built-ins, so no `npm install` is needed.
+
+name: Product version
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The guard only reads files; it needs no repository permissions.
+permissions: {}
+
+jobs:
+  product-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Unit-test the guard
+        run: node --test scripts/check-product-version.test.mjs
+
+      - name: Enforce product version + docs consistency
+        run: node scripts/check-product-version.mjs

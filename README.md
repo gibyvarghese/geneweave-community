@@ -383,6 +383,14 @@ framework releases a new version on npm, bump the `@weaveintel/*` versions here 
 `npm run build && npm test`. For the framework's own docs and package guide, see the
 [weaveIntel repository](https://github.com/gibyvarghese/weaveintel).
 
+## Versioning
+
+geneWeave is versioned as **one product** with **Semantic Versioning** and a fabric codename on each major;
+both editions (community + private) ship the **same version line** — currently **1.0.0 "Aertex"**. A CI guard
+(the **Product version** workflow) keeps the version, its codename, [`VERSIONING.md`](VERSIONING.md), and
+[`CHANGELOG.md`](CHANGELOG.md) consistent. The `@weaveintel/*` framework libraries version independently on their
+own track. Full details: [`VERSIONING.md`](VERSIONING.md).
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

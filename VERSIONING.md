@@ -66,6 +66,18 @@ isn't a downgrade.
 |---------|----------|----------|
 | **1.0.0** | Aertex | community + private (same version line) |
 
+## Enforcement
+
+The product version lives in **one place — `apps/geneweave/package.json`**. A CI guard
+(`scripts/check-product-version.mjs`, run by the **Product version** workflow on every push/PR) keeps it
+honest: it must be valid SemVer, its major must map to the correct fabric codename, and both the
+**Current release** row above and the newest **`CHANGELOG.md`** entry must agree with it.
+
+Because the two editions share one version line, the **private/enterprise** repo additionally
+cross-checks that its product version equals this community one — it reads this public value directly and
+fails its own CI on any divergence. This community repo self-validates only; it never holds a
+private-repo credential.
+
 ## Related
 
 - The framework libraries geneWeave depends on — the `@weaveintel/*` packages — version **independently** with

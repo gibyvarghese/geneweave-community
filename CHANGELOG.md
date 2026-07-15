@@ -6,7 +6,13 @@ Both editions (community + private) share the same version line. Releases are cu
 [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) → *Publisher runbook*), and the running engine verifies, applies, and
 reconciles them (see [`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md)).
 
-## 1.0.0
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+_Nothing yet._
+
+## [1.0.0] — Aertex
 
 The Upgrade Engine — geneWeave keeps itself, its schema, and its shipped defaults current across releases the
 way a good package manager handles config files: it never clobbers your edits and never strands you on an old
