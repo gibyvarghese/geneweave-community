@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, loadAdmin, PROMPT_WIZARD_TABS } from './api.js';
 import { noticeDialog, confirmDialog, promptDialog } from "./dialog.js";
 import { h } from './dom.js';
 import { state } from './state.js';
@@ -566,6 +566,9 @@ export function adminEditRow(
     state.adminEditing = row?.id ?? row?.[schema.cols?.[0]] ?? null;
     state.adminForm = { __promptWizard: true };
     pushAdminHash(tab, state.adminEditing);
+    // The wizard's framework/strategy/contract/fragment pickers read those tabs from state.adminData; under lazy
+    // loading only the active tab is loaded, so pull the wizard's related tabs (re-renders when they arrive).
+    void loadAdmin(PROMPT_WIZARD_TABS);
     render();
     return;
   }
@@ -596,6 +599,8 @@ export function adminNewRow(tab: string, render: () => void) {
     resetPromptWizard(state, 'create');
     state.adminEditing = null;
     state.adminForm = { __promptWizard: true };
+    // Same as the edit path: the wizard needs its related tabs' data, which lazy loading won't have preloaded.
+    void loadAdmin(PROMPT_WIZARD_TABS);
     render();
     return;
   }
