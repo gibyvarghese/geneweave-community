@@ -28,6 +28,7 @@
     "test:e2e:upgrade-remote": "node scripts/upgrade-remote-scan-e2e.mjs",
     "test:e2e:admin-lazy": "node scripts/admin-lazy-load-e2e.mjs",
     "test:e2e:upgrade-429": "node scripts/upgrade-429-resilience-e2e.mjs",
+    "test:e2e:upgrade-lifecycle": "node scripts/upgrade-lifecycle-e2e.mjs",
     "sv:eval": "npx tsx src/features/scientific-validation/evals/run-corpus.ts",
     "sv:cost-gate": "npx tsx src/features/scientific-validation/evals/cost-gate.ts"
   },
