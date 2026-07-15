@@ -16,8 +16,9 @@ on:
   pull_request:
     branches: [main]
 
-# The guard only reads files; it needs no repository permissions.
-permissions: {}
+# Least privilege: checkout needs read access to the repo; the guard needs nothing more.
+permissions:
+  contents: read
 
 jobs:
   product-version:
