@@ -204,15 +204,29 @@ async function runUpgrade(render: () => void): Promise<void> {
 
 // ── review queue ──────────────────────────────────────────────────────────────────────────────────────
 
-/** Load the current review queue and clamp the cursor into range. */
+/** An always-valid empty queue, so every reader can treat `S.queue.items` as an array (even after an error). */
+const EMPTY_QUEUE: ReviewQueue = { items: [], byPriority: {}, byFamily: {} };
+
+/**
+ * Load the current review queue and clamp the cursor into range. A non-2xx response (e.g. a 429 rate-limit)
+ * returns an `{ error }` body, not `{ items }` — normalise it to a valid empty queue and surface the error, so
+ * the renderer never reads `.length` off an undefined `items`.
+ */
 async function loadQueue(render: () => void): Promise<void> {
   S.busy = 'review'; render();
   try {
     const resp = await api.get('/admin/upgrade/review');
-    S.queue = await resp.json() as ReviewQueue;
-    if (S.cursor >= S.queue.items.length) S.cursor = Math.max(0, S.queue.items.length - 1);
+    if (resp.ok) {
+      const data = await resp.json() as Partial<ReviewQueue>;
+      S.queue = { items: Array.isArray(data.items) ? data.items : [], byPriority: data.byPriority ?? {}, byFamily: data.byFamily ?? {} };
+      if (S.cursor >= S.queue.items.length) S.cursor = Math.max(0, S.queue.items.length - 1);
+    } else {
+      S.error = `load review failed (${resp.status})`;
+      S.queue = S.queue ?? EMPTY_QUEUE;
+    }
   } catch (err) {
     S.error = `load review failed: ${(err as Error).message}`;
+    S.queue = S.queue ?? EMPTY_QUEUE;
   } finally {
     S.busy = ''; render();
   }
@@ -220,7 +234,7 @@ async function loadQueue(render: () => void): Promise<void> {
 
 /** Resolve the item under the cursor (or a given id) with an action, then reload the queue. */
 async function resolveItem(action: 'keep' | 'adopt' | 'defer', render: () => void, detailId?: string, comment?: string): Promise<void> {
-  const id = detailId ?? S.queue?.items[S.cursor]?.id;
+  const id = detailId ?? S.queue?.items?.[S.cursor]?.id;
   if (!id) return;
   S.busy = action; S.error = null; render();
   try {
@@ -286,7 +300,8 @@ function renderReviewRow(item: ReviewItem, index: number, render: () => void): H
 /** The whole review section: tally, bulk controls, the keyboard-navigable list, and the undo affordance. */
 function renderReview(render: () => void): HTMLElement {
   const q = S.queue;
-  const remaining = q?.items.length ?? 0;
+  const items = q?.items ?? []; // items is always an array here; `?.items` alone wouldn't guard a malformed queue
+  const remaining = items.length;
   const section = h('div', { className: 'uc-review', tabindex: '0', 'data-uc-review': '' },
     h('div', { className: 'uc-review-head' },
       h('strong', {}, 'Review queue'),
@@ -297,18 +312,18 @@ function renderReview(render: () => void): HTMLElement {
     h('div', { className: 'uc-hint' }, 'j/k move · 1 keep · 2 adopt · d defer · u undo — P1 items are never bulk-resolved'),
     ...(remaining === 0
       ? [h('div', { className: 'uc-empty' }, 'Nothing to review.')]
-      : (q!.items.map((it, i) => renderReviewRow(it, i, render)))),
+      : (items.map((it, i) => renderReviewRow(it, i, render)))),
   );
   // Move the cursor highlight IN PLACE (no full re-render), so the container keeps focus — a full rebuild on
   // every keystroke drops focus until an async refocus, which races rapid key presses.
   const moveCursor = (delta: number): void => {
-    const n = S.queue?.items.length ?? 0;
+    const n = S.queue?.items?.length ?? 0;
     S.cursor = Math.max(0, Math.min(n - 1, S.cursor + delta));
     section.querySelectorAll('.uc-review-row').forEach((el, i) => (el as HTMLElement).classList.toggle('is-cursor', i === S.cursor));
   };
   // Keyboard model: j/k move the cursor, 1/2/d act on it, u undoes. Keys not handled fall through.
   section.addEventListener('keydown', (e: KeyboardEvent) => {
-    const n = S.queue?.items.length ?? 0;
+    const n = S.queue?.items?.length ?? 0;
     if (n === 0 && e.key !== 'u') return;
     if (e.key === 'j') { e.preventDefault(); moveCursor(1); }
     else if (e.key === 'k') { e.preventDefault(); moveCursor(-1); }
@@ -328,7 +343,12 @@ async function loadAttention(render: () => void): Promise<void> {
   S.busy = 'attention'; S.error = null; render();
   try {
     const resp = await api.get(`/admin/upgrade/attention?family=${encodeURIComponent(S.attentionFamily)}`);
-    S.attention = await resp.json() as AttentionReport;
+    if (resp.ok) {
+      const data = await resp.json() as Partial<AttentionReport>;
+      S.attention = { family: data.family ?? S.attentionFamily, entries: Array.isArray(data.entries) ? data.entries : [], count: data.count ?? 0 };
+    } else {
+      S.error = `attention failed (${resp.status})`; // a non-2xx (e.g. 429) has no entries — don't stash it
+    }
   } catch (err) {
     S.error = `attention failed: ${(err as Error).message}`;
   } finally {
