@@ -56,9 +56,11 @@ A release is a **`v<x.y.z>` git tag** with a **GitHub Release** carrying an **Ed
 running instance trusts it only if it is signed by a key in its trust set, is for its edition, isn't expired, and
 isn't a downgrade.
 
-Cutting a release is automated: push a `v<x.y.z>` tag and the **Release workflow**
-([`.github/workflows/release.yml`](.github/workflows/release.yml)) builds, signs, and publishes the manifest via
-`apps/geneweave/scripts/build-release-manifest.mjs`. The manifest's `fileManifestDigest` is computed by the same
+Cutting a release is one command: `npm run release:product <patch|minor|major>` bumps the product version, rolls
+`CHANGELOG.md`, updates the **Current release** row above, and creates the `v<x.y.z>` tag (validated against the
+guard first). Pushing that tag triggers the **Release workflow**
+([`.github/workflows/release.yml`](.github/workflows/release.yml)), which builds, signs, and publishes the
+manifest via `apps/geneweave/scripts/build-release-manifest.mjs`. The manifest's `fileManifestDigest` is computed by the same
 code every instance re-verifies with, so it always matches the tag's source tree. The signing key's **public**
 half is published in [`release-keys/`](release-keys/) for adopters to trust (set `GENEWEAVE_UPGRADE_TRUSTED_KEYS`).
 
