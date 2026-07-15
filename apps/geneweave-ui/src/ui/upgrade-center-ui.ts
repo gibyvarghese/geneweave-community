@@ -234,8 +234,19 @@ async function loadQueue(render: () => void): Promise<void> {
 
 /** Resolve the item under the cursor (or a given id) with an action, then reload the queue. */
 async function resolveItem(action: 'keep' | 'adopt' | 'defer', render: () => void, detailId?: string, comment?: string): Promise<void> {
-  const id = detailId ?? S.queue?.items?.[S.cursor]?.id;
+  const item = detailId ? S.queue?.items?.find((i) => i.id === detailId) : S.queue?.items?.[S.cursor];
+  const id = detailId ?? item?.id;
   if (!id) return;
+  // Only realm-content (L4) records have a live row to overwrite. Adopting code/packages/schema (L1–L3) means
+  // taking upstream — a DEPLOY, not an in-app write — so the server refuses it (409). Guard here (covers the
+  // keyboard '2' too) with a plain-language pointer instead of surfacing the raw backend error.
+  if (action === 'adopt' && item && item.layer !== 'L4') {
+    S.error = item.family === 'code'
+      ? 'Code conflicts are resolved in the Code section below (Open merge) — not adopted here. Keep or Defer this row, or merge the file.'
+      : `'${item.family}' changes apply on deploy, not in-app, so they can't be adopted here. Use Keep or Defer.`;
+    render();
+    return;
+  }
   S.busy = action; S.error = null; render();
   try {
     const resp = await api.post(`/admin/upgrade/review/${id}/resolve`, { action, ...(comment ? { comment } : {}) });
@@ -275,6 +286,11 @@ async function bulkResolve(action: 'keep' | 'adopt' | 'defer', family: string | 
 // ── rendering ───────────────────────────────────────────────────────────────────────────────────────
 
 /** A single review row. The selected row (`cursor`) gets an `is-cursor` class the keyboard handler tracks. */
+/** Scroll the open merge panel into view — used when a merge is opened from a review-queue row higher up. */
+function scrollToMerge(): void {
+  setTimeout(() => document.querySelector('[data-uc-merge], [data-uc-merge-git]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+}
+
 function renderReviewRow(item: ReviewItem, index: number, render: () => void): HTMLElement {
   const selected = index === S.cursor;
   const row = h('div', {
@@ -288,9 +304,17 @@ function renderReviewRow(item: ReviewItem, index: number, render: () => void): H
     h('span', { className: 'uc-family' }, item.family),
     h('span', { className: 'uc-key' }, item.logical_key),
     h('span', { className: 'uc-note' }, item.note ?? ''),
+    // Actions depend on the layer: realm content (L4) can be adopted; code (L2) is merged in the Code section;
+    // other non-content rows (packages/schema) can only be kept or deferred. `stopPropagation` keeps a row-action
+    // click from also moving the cursor (the row's onclick).
     h('div', { className: 'uc-row-actions' },
+      item.family === 'code'
+        ? h('button', { 'data-uc-action': 'merge', onclick: (e: Event) => { e.stopPropagation(); void openConflict({ detailId: item.id, path: item.logical_key, priority: item.priority }, render); scrollToMerge(); } }, 'Open merge')
+        : null,
       h('button', { 'data-uc-action': 'keep', onclick: (e: Event) => { e.stopPropagation(); void resolveItem('keep', render, item.id); } }, 'Keep mine'),
-      h('button', { 'data-uc-action': 'adopt', onclick: (e: Event) => { e.stopPropagation(); void resolveItem('adopt', render, item.id); } }, 'Adopt'),
+      item.layer === 'L4'
+        ? h('button', { 'data-uc-action': 'adopt', onclick: (e: Event) => { e.stopPropagation(); void resolveItem('adopt', render, item.id); } }, 'Adopt')
+        : null,
       h('button', { 'data-uc-action': 'defer', onclick: (e: Event) => { e.stopPropagation(); void resolveItem('defer', render, item.id); } }, 'Defer'),
     ),
   );
