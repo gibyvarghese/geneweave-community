@@ -15,7 +15,9 @@
     "test": "turbo test --concurrency=1",
     "dev": "node start.mjs",
     "start": "node start.mjs",
-    "test:docs-samples": "node scripts/extract-docs-samples.mjs && tsc --noEmit -p tsconfig.docs-samples.json"
+    "test:docs-samples": "node scripts/extract-docs-samples.mjs && tsc --noEmit -p tsconfig.docs-samples.json",
+    "release:product": "node scripts/release-product.mjs",
+    "test:unit:release-product": "node --test scripts/release-product.test.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

@@ -64,10 +64,19 @@ node scripts/gen-release-key.mjs        # prints the PRIVATE PEM (→ secret) + 
 
 ### Cutting a release
 
-1. Bump the product version in `apps/geneweave/package.json` (see [`../VERSIONING.md`](../VERSIONING.md)); update
-   [`../CHANGELOG.md`](../CHANGELOG.md).
-2. Tag and push: `git tag v<x.y.z> && git push origin v<x.y.z>`.
-3. The Release workflow builds, then runs `scripts/build-release-manifest.mjs`, which:
+One command bumps the version, rolls the changelog, updates VERSIONING.md, and tags — validating the result
+against the product-version guard before it commits, so the tag it produces is guaranteed to pass CI:
+
+```bash
+# add your notes under "## [Unreleased]" in CHANGELOG.md first, then:
+npm run release:product minor              # or patch | major | --set 1.2.0   (preview with --dry-run)
+git push origin HEAD && git push origin v<x.y.z>   # cut the release (or pass --push to do both)
+```
+
+Both editions share ONE product version — run the same version in the private repo
+(`npm run release:product --set <x.y.z>`); the lockstep guard fails CI if they diverge. Then:
+
+1. The push of `v<x.y.z>` triggers the Release workflow, which builds and runs `scripts/build-release-manifest.mjs`, which:
    - computes `layers.code.fileManifestDigest` via `fetchTreeBaseline` — the **same** function every instance
      re-verifies with, so the digest is guaranteed to match the tag's source tree;
    - assembles the manifest body (`version`, fabric `codename`, `edition`, `layers.code.repoTag = the tag`),
