@@ -86,6 +86,14 @@ cross-checks that its product version equals this community one — it reads thi
 fails its own CI on any divergence. This community repo self-validates only; it never holds a
 private-repo credential.
 
+At **release time**, the [Release workflow](.github/workflows/release.yml) adds two more gates before it
+publishes: `scripts/check-release-tag.mjs` refuses a tag that isn't SemVer, doesn't match the product version, or
+isn't **newer than every existing tag** (anti-rollback); and after signing, `verify-release-manifest.mjs`
+**independently re-verifies** the manifest's Ed25519 signature against the published key in
+[`release-keys/`](release-keys/). Anyone can run that same check on a downloaded release —
+`cd apps/geneweave && npm run verify:release-manifest -- manifest.json` — to confirm its provenance (see
+[`docs/UPGRADE_ENGINE.md`](docs/UPGRADE_ENGINE.md) → *Verifying a release's provenance*).
+
 ## Related
 
 - The framework libraries geneWeave depends on — the `@weaveintel/*` packages — version **independently** with
