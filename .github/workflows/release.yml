@@ -30,11 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tag gate compares against ALL existing tags (anti-rollback)
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+
+      # Gate 1: refuse a tag that isn't SemVer, doesn't match the product version, or isn't newer than every
+      # existing release tag — before we build or sign anything. (Dependency-free; no install needed yet.)
+      - name: Validate the release tag (SemVer + version match + anti-rollback)
+        run: node scripts/check-release-tag.mjs "${{ github.ref_name }}"
 
       - name: Install dependencies (pulls @weaveintel/* from npm)
         run: npm install --no-audit --no-fund
@@ -51,6 +58,12 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           GENEWEAVE_EDITION: community
           GITHUB_TOKEN: ${{ github.token }} # the publisher fetches the tag's tarball to compute the digest
+
+      # Gate 2: independently verify the signed manifest against the committed public key(s) BEFORE publishing —
+      # defence in depth over the publisher's own self-verify, and the same check adopters run on a download.
+      - name: Verify the signed manifest's provenance
+        working-directory: apps/geneweave
+        run: node scripts/verify-release-manifest.mjs manifest.json --edition community
 
       - name: Publish the GitHub Release with the signed manifest
         uses: softprops/action-gh-release@v2

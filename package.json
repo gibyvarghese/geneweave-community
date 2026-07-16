@@ -17,7 +17,9 @@
     "start": "node start.mjs",
     "test:docs-samples": "node scripts/extract-docs-samples.mjs && tsc --noEmit -p tsconfig.docs-samples.json",
     "release:product": "node scripts/release-product.mjs",
-    "test:unit:release-product": "node --test scripts/release-product.test.mjs"
+    "check:release-tag": "node scripts/check-release-tag.mjs",
+    "test:unit:release-product": "node --test scripts/release-product.test.mjs",
+    "test:unit:release-tag": "node --test scripts/check-release-tag.test.mjs"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

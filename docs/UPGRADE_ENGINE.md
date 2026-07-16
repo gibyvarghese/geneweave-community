@@ -167,6 +167,31 @@ The signing/verification, manifest schema, and release sources are the brand-neu
 [`@weaveintel/upgrade`](https://www.npmjs.com/package/@weaveintel/upgrade) package; geneWeave supplies the
 persistence, the resilient HTTP, the stored source config, and the admin route.
 
+### Verifying a release's provenance
+
+Every release is a `v<x.y.z>` git tag and a GitHub Release carrying an **Ed25519-signed `manifest.json`**. Trust
+is enforced at three points, so a tampered, unsigned, or backwards release never reaches an instance:
+
+1. **At release time** (the [Release workflow](../.github/workflows/release.yml)) the tag is gated as SemVer +
+   matching the product version + **newer than every existing tag** (anti-rollback), the manifest is signed, and
+   then **independently re-verified** against the repo's published public key before the Release is published.
+2. **On the instance**, the Upgrade Center's `check` verifies the signature against your **trusted keys**, refuses
+   another edition, an expired manifest, or a downgrade — each with a distinct reason — before anything is
+   trusted.
+3. **By you, out of band.** The published public keys live in [`release-keys/`](../release-keys/). To verify a
+   downloaded release yourself:
+
+   ```bash
+   cd apps/geneweave
+   npm run verify:release-manifest -- <path/to/manifest.json>            # trusts release-keys/
+   #   ✓ verified: @weaveintel/geneweave-api@1.2.0 "Aertex" (community) — signed by trusted key <fingerprint>
+   node scripts/verify-release-manifest.mjs manifest.json --keys my.pem --edition community --json
+   ```
+
+   Exit code `0` means verified; `1` prints the distinct reason (`signature bad_signature` / `untrusted_key`,
+   `edition mismatch`, `expired`, or a malformed manifest). It uses the *same* verifier the instance uses, so a
+   pass here means the instance will accept it too.
+
 ## Preflight: is it safe to apply?
 
 Before applying an accepted release, a platform admin can run **preflight** (`POST /api/admin/upgrade/preflight`) —
